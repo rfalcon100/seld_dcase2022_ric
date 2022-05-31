@@ -12,10 +12,76 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 import math
+import random
+import warnings
 from typing import Iterable, Tuple, TypeVar, Callable, Any, List, Union
 from matplotlib.colors import to_rgb
 
 import spaudiopy as spa
+
+
+def validate_audio(audio, message=''):
+    """ Checks if the audio is valid by:
+        -- Not having any infinite values
+        -- Not having NaNs
+        -- Not being silence (only 0s)
+        -- All values in the range [-1, 1]
+    """
+    if isinstance(audio, np.ndarray):
+        tmp = torch.from_numpy(audio)
+    else:
+        tmp = audio
+
+    check = torch.all(torch.isfinite(tmp))
+    check = check and torch.all(~torch.isnan(tmp))
+    check = check and torch.any(torch.logical_or(tmp > 0, tmp < 0))
+    check = check and torch.all(torch.logical_and(tmp <= 1, tmp >= -1))
+
+    #import matplotlib
+    #matplotlib.use('TkAgg')
+    #plot_waveform(tmp.transpose(1, 0), sample_rate=24000)
+
+    if message != '':
+        print('>>>>>>>> ' + message + f'{check}')
+    return check
+
+
+def seed_everything(seed=12345, mode='balanced'):
+    # ULTIMATE random seeding for either full reproducibility or a balanced reproducibility/performance.
+    # In general, some operations in cuda are non deterministic to make them faster, but this can leave to
+    # small differences in several runs.
+    #
+    # So as of 21.10.2021, I think that the best way is to use the balanced approach during exploration
+    # and research, and then use the full reproducibility to get the final results (and possibly share code)
+    #
+    # References:
+    # https://pytorch.org/docs/stable/notes/randomness.html
+    #
+    # Args:
+    #   -- seed = Random seed
+    #   -- mode {'balanced', 'deterministic'}
+
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    if mode == 'balanced':
+        torch.backends.cudnn.deterministic = False   # if set as true, dilated convs are really slow
+        torch.backends.cudnn.benchmark = True  # True -> better performance, # False -> reproducibility
+    elif mode == 'deterministic':
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Throws error:
+        # RuntimeError: Deterministic behavior was enabled with either `torch.use_deterministic_algorithms(True)`
+        # or `at::Context::setDeterministicAlgorithms(true)`, but this operation is not deterministic because it uses CuBLAS
+        # and you have CUDA >= 10.2. To enable deterministic behavior in this case, you must set an environment variable
+        # before running your PyTorch application: CUBLAS_WORKSPACE_CONFIG=:4096:8 or CUBLAS_WORKSPACE_CONFIG=:16:8.
+        # For more information, go to https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
+
+        # torch.use_deterministic_algorithms(True)
+
 
 
 def get_rotation_matrix(rotation_phi, rotation_theta, rotation_psi) -> torch.Tensor:
