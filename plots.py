@@ -510,6 +510,94 @@ def plot_labels(labels: Union[torch.Tensor, np.ndarray], n_classes: Union[int, L
     return fig
 
 
+def plot_labels_cross_sections(labels: Union[torch.Tensor, np.ndarray], n_classes: Union[int, List[int]] = None,
+                               rlim=None, title=None, tkagg=False, savefig=True, plot_cartesian=True, size_modifier=25):
+    """ Plots the ACCDOA labels [3, n_classes, frames] as 2d cross section plots for azimuth, elevation, and a plot for
+    the vector length. Used to visualize the labels."""
+    if tkagg:
+        import matplotlib
+        matplotlib.use('TkAgg')  # Trick so that I can see the plots when debugging TODO Fix this
+
+    assert len(labels.shape) == 3, 'Labels should be [3, n_classes, n_frames]'
+    assert labels.shape[0] == 3, 'Labels should be [3, n_classes, n_frames]'
+    if n_classes is None:
+        n_classes = np.arange(labels.shape[1])
+    cmap = get_cmap(len(n_classes))
+
+    fig = plt.figure(figsize=(9, 12))
+    # fig, axs = plt.subplots(3, 1, sharex=True, figsize=(9, 12))
+
+    ax0 = plt.subplot(2, 2, 1, projection='polar')
+    ax1 = plt.subplot(2, 2, 2, projection='polar')
+    ax2 = plt.subplot(4, 1, 3)
+    ax3 = plt.subplot(4, 1, 4)
+    plt.suptitle(title)
+
+    if rlim is None:
+        rlim = [0, 2]
+    for jj in n_classes:
+        labels_polar = utils.vecs2dirs(labels[:, jj, :].permute([1, 0]), positive_azi=True, include_r=True,
+                                 use_elevation=True)
+        r, g, b = to_rgb(cmap(jj))  # Vector magnitude determines the alpha
+        tmp_color = [(r, g, b, alpha) for alpha in labels_polar[:, 2]]
+        tmp_color = [(r, g, b, 1) for alpha in labels_polar[:, 2]]
+
+        # Azimuth  = projection over XY plane
+        plane_xy = torch.tensor([[0, 0, 1.0]])  # XY plane is defined by the normal vector over z axis
+        tmp_proj = labels[:, jj, :].transpose(1, 0) - torch.matmul(plane_xy, labels[:, jj, :]).transpose(1, 0) * plane_xy
+        tmp_r = torch.linalg.vector_norm(tmp_proj, ord=2, dim=1)
+        labels_polar_proj = utils.vecs2dirs(tmp_proj, positive_azi=True, include_r=True, use_elevation=True)
+        ax0.scatter(labels_polar_proj[:, 0], labels_polar_proj[:, 2], s=10, color=tmp_color)
+
+        # Elevation = Projection over XZ plane
+        tmp_azis_for_ele = labels_polar[:, 0]
+        tmp_ele = labels_polar[:, 1]
+
+        plane_xz = torch.tensor([[0, 1.0, 0]])  # XZ plane is defined by the normal vector over y axis
+        tmp_proj = labels[:, jj, :].transpose(1, 0) - torch.matmul(plane_xz, labels[:, jj, :]).transpose(1, 0) * plane_xz
+        tmp_r = torch.linalg.vector_norm(tmp_proj, ord=2, dim=1)
+        labels_polar_proj = utils.vecs2dirs(tmp_proj, positive_azi=True, include_r=True, use_elevation=True)
+
+        ids_behind = np.logical_and(labels_polar_proj[:, 0] > np.pi / 2, labels_polar_proj[:, 0] < 3 * np.pi / 2)
+        labels_polar_proj[ids_behind, 1] = labels_polar_proj[ids_behind, 1] + (np.pi - 2 * labels_polar_proj[ids_behind, 1])
+        ax1.scatter(labels_polar_proj[:, 1], labels_polar_proj[:,2], s=10, color=tmp_color)
+
+        # Plot of vector lengths
+        ax2.plot(torch.arange(0, labels.shape[-1]), labels_polar[:, 2], color=cmap(jj))
+
+    # Plot class activity
+    ax3.imshow(labels.permute([1, 2, 0]), interpolation='nearest', aspect='auto')  # imshow needs [height, width, channels]
+
+    # Formatting
+    eps = 1e-1
+    this_title = 'Azimuth' + title if title is not None else 'Azimuth'
+    ax0.set_title(f'{this_title}')
+    ax0.set_theta_offset(np.pi / 2)
+    ax0.set_rmin(rlim[0])
+    ax0.set_rmax(rlim[1] + eps)
+    ax0.set_rticks(np.linspace(rlim[0], rlim[1], 6))
+
+    this_title = 'Elevation' + title if title is not None else 'Elevation'
+    ax1.set_title(f'{this_title}')
+    ax1.set_theta_zero_location('W')
+    ax1.set_theta_offset(np.pi)
+    ax1.set_rmin(rlim[0])
+    ax1.set_rmax(rlim[1] + eps)
+    ax1.set_thetagrids(angles=[0, 45, 90, 315, 270], labels=['0°', '45°', '90°', '-45°', '-90°'])
+    ax1.set_theta_direction(-1)
+    ax1.set_rticks(np.linspace(rlim[0], rlim[1], 6))
+
+    this_title = 'Vector Length' + title if title is not None else 'Vector Length'
+    ax2.set_ylabel(f'{this_title}')
+    ax2.set_ylim([0 - eps, 1.0 + eps])
+    ax2.grid()
+    plt.tight_layout()
+    plt.show()
+    if savefig:
+        plt.savefig(f'labels_{title}.png')
+    return fig
+
+
 def sh_rms_map(F_nm, INDB=False, w_n=None, SH_type=None, azi_steps=5, zen_steps=3,
                title=None, fig=None, vmin=None, vmax=None, return_values=False):
     """Plot spherical harmonic signal RMS as function on the sphere.
