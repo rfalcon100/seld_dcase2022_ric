@@ -32,12 +32,13 @@ def _read_audio(fname: str, directory_root: str, resampler: Union[torch.nn.Seque
     metadata = torchaudio.info(fpath)
     num_frames = trim_seconds if trim_seconds == -1 else trim_seconds * metadata.sample_rate
     this_audio, fs = torchaudio.load(fpath, num_frames=num_frames)
+    duration_seconds = this_audio.shape[-1] / fs
     assert validate_audio(this_audio), f'ERROR: {fname}  audio is not valid.'
 
     if resampler is not None:
         this_audio = resampler(this_audio)
 
-    return torch.tensor(this_audio, dtype=torch.float), fs
+    return torch.tensor(this_audio, dtype=torch.float), fs, duration_seconds
 
 
 def _read_time_array(fname: str, directory_root: str) -> List:
@@ -192,7 +193,8 @@ def _read_audio_and_time_array(fname: str, time_array: List, directory_root: str
     return torch.tensor(chunks, dtype=torch.float)
 
 
-def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float, trim_wavs: int) \
+def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float,
+                  trim_wavs: int, clip_length_seconds: int = 60, multi_track: bool = False) \
         -> Tuple[torch.Tensor, torch.Tensor]:
     """Returns a random slice of an audio and its corresponding time array (label)"""
 
@@ -200,13 +202,14 @@ def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_aud
     if trim_wavs > 0:
         star_min_sec, start_max_sec = 2, 2 + trim_wavs  # Hardcoded start at 2 seconds
     else:
-        star_min_sec, start_max_sec = 0, 60
+        star_min_sec, start_max_sec = 0, clip_length_seconds
     start_sec = np.round(np.random.randint(star_min_sec,
                                            min((audio.shape[-1] - chunk_size_audio / 2) / fs, start_max_sec),
                                            1))
     start_index = start_sec * fs
     sliced_audio = audio[:, start_index[0]: start_index[0] + round(chunk_size_audio)]
-    label = _get_labels(time_array, start_sec, fs, chunk_size_audio=chunk_size_audio, rotation_pattern=None, multi_track=False)
+    label = _get_labels(time_array, start_sec, fs, chunk_size_audio=chunk_size_audio,
+                        rotation_pattern=None, multi_track=multi_track)
 
     return sliced_audio, label
 
@@ -274,7 +277,8 @@ class DCASE_SELD_Dataset(Dataset):
                  trim_wavs: float = -1,  # in seconds
                  chunk_size: int = 48000,  # in samples
                  chuck_mode: str = 'fixed',
-                 return_fname: bool = False):
+                 return_fname: bool = False,
+                 multi_track: bool = False):
         super().__init__()
         self.directory_root = directory_root
         self.list_dataset = list_dataset  # list of wav filenames  , e.g. './data_dcase2021_task3/foa_dev/dev-val/fold5_room1_mix001.wav'
@@ -282,20 +286,24 @@ class DCASE_SELD_Dataset(Dataset):
         self.chunk_mode = chuck_mode
         self.trim_wavs = trim_wavs  # Trims the inputs wavs to the selected length in seconds
         self.return_fname = return_fname
+        self.multi_track = multi_track
         self.resampler = None
 
         self._fnames = []
         self._audios = {}
+        self.durations = {}
         self._fs = {}  # Per wav
         self._time_array_dict = {}  # Per wav
 
         # Load full wavs and time_arrays to memory
         self._fnames = _read_fnames(directory_root=self.directory_root, list_dataset=self.list_dataset)
         for fname in self._fnames:
-            audio, fs = _read_audio(fname=fname, directory_root=self.directory_root, resampler=self.resampler, trim_seconds=self.trim_wavs)
+            audio, fs, duration = _read_audio(fname=fname, directory_root=self.directory_root,
+                                              resampler=self.resampler, trim_seconds=self.trim_wavs)
             time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
             self._audios[fname] = audio
             self._fs[fname] = fs
+            self.durations[fname] = duration
             self._time_array_dict[fname] = time_array
 
         self.__validate()
@@ -319,22 +327,25 @@ class DCASE_SELD_Dataset(Dataset):
         fmt_str += '    Chunk size: {}\n'.format(self.chunk_size_audio)
         fmt_str += '    Chunk Mode: {}\n'.format(self.chunk_mode)
         fmt_str += '    Trim audio: {}\n'.format(self.trim_wavs)
+        fmt_str += '    Multi_track: {}\n'.format(self.multi_track)
         return fmt_str
 
     def __getitem__(self, item):
         fname = self._fnames[item]
         audio = self._audios[fname]
         fs = self._fs[fname]
+        duration = self.durations[fname]
         time_array = self._time_array_dict[fname]
 
         # Select a slice
         if self.chunk_mode == 'fixed':
             audio, label = _fixed_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio)
         elif self.chunk_mode == 'random':
-            audio, label = _random_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio, trim_wavs=self.trim_wavs)
+            audio, label = _random_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio,
+                                         trim_wavs=self.trim_wavs, clip_length_seconds=duration, multi_track=self.multi_track)
         elif self.chunk_mode == 'full':
             label = _get_labels(time_array, start_sec=0, fs=fs, chunk_size_audio=audio.shape[-1], rotation_pattern=None,
-                                multi_track=False)
+                                multi_track=self.multi_track)
         if self.return_fname:
             return audio, torch.from_numpy(label.astype(np.float32)), fname
         else:
@@ -353,7 +364,7 @@ def test_dataset_train_iteration(num_iters=100, batch_size=32, num_workers=4):
                                        list_dataset='dcase2022_devtrain_all.txt',
                                        chunk_size=int(24000 * 1.27),
                                        chuck_mode='random',
-                                       trim_wavs=5,
+                                       trim_wavs=-1,
                                        return_fname=True)
     loader_train = InfiniteDataLoader(dataset_train, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
 
@@ -373,12 +384,11 @@ def test_dataset_train_iteration(num_iters=100, batch_size=32, num_workers=4):
             else:
                 ctr_fnames[fname] = 1
         ctr += 1
-        #if ctr > 5:
-        #    break
+        if ctr > 5:
+            break
 
-    # Display counter of how many each wav was sliced
+    # Display counter of how many times each wav was sliced
     print(f'There are {len(ctr_fnames)} unique fnames.')
-
     f, ax = plt.subplots(figsize=(10, 15))
     df = pd.DataFrame(list(ctr_fnames.items()))
     df.columns = ['fname', 'count']
@@ -386,6 +396,112 @@ def test_dataset_train_iteration(num_iters=100, batch_size=32, num_workers=4):
                 label="count", color="b")
     sns.despine(left=True, bottom=True)
     plt.show()
+
+    # Display wav durations
+    f, ax = plt.subplots(figsize=(10, 15))
+    df = pd.DataFrame(list(dataset_train.durations.items()))
+    df.columns = ['fname', 'duration']
+    sns.barplot(x="duration", y="fname", data=df,
+                label="duration", color="b")
+    sns.despine(left=True, bottom=True)
+    plt.show()
+
+
+def _get_padders(chunk_size_seconds:float = 1.27,
+                 duration_seconds: float = 60.0,
+                 overlap: float = 0.5,
+                 audio_fs=24000, labels_fs=100):
+    # Wavs:
+    fs = audio_fs
+    audio_full_size = fs * duration_seconds
+    audio_chunk_size = int(fs * chunk_size_seconds)
+    audio_pad_size = math.ceil(audio_full_size / audio_chunk_size) + math.ceil(audio_fs / labels_fs / overlap)
+    audio_padder = nn.ConstantPad1d(padding=(0, audio_pad_size), value=0.0)
+    audio_step_size = int(audio_chunk_size * overlap)
+
+    # Labels:
+    labels_fs = labels_fs  # 100 --> 10 ms
+    labels_full_size = labels_fs * duration_seconds
+    labels_chunk_size = math.ceil(labels_fs * chunk_size_seconds) + 1
+    labels_pad_size = math.ceil(labels_full_size / labels_chunk_size) + 1
+    labels_padder = nn.ConstantPad2d(padding=(0, labels_pad_size, 0, 0), value=0.0)
+    labels_step_size = int(labels_chunk_size * overlap)
+
+    audio_padding = {'padder': audio_padder,
+                     'chunk_size': audio_chunk_size,
+                     'hop_size': audio_step_size}
+    labels_padding = {'padder': labels_padder,
+                     'chunk_size': labels_chunk_size,
+                     'hop_size': labels_step_size}
+    return audio_padding, labels_padding
+
+
+def test_validation_clean():
+    # Here I am testing how to do the validation
+    # The idea is that I want to iterate the full wavs, to get the predictions
+    # So we get full length audio and labels from the dataset
+    # Then we split into chunks manually
+    # And iterate over wavs, using a dataloader for each one
+    # Other useful function, torch.chunks, torch.split
+
+    batch_size = 32  # This depends on GPU memory
+    dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 chuck_mode='full',
+                                 trim_wavs=-1,
+                                 return_fname=True)
+
+    spec = torchaudio.transforms.Spectrogram(
+        n_fft=512,
+        win_length=512,
+        hop_length=240,
+    )
+
+    print(f'Iterating {len(dataset)} fnames in dataset.')
+    for i in range(len(dataset)):
+        # Analyze audio in full size
+        audio, labels, fname = dataset[i]
+        duration = dataset.durations[fname]
+
+        print(f'Full audio:')
+        print(audio.shape)
+        print(f'Full spec:')
+        print(spec(audio).shape)
+        print(f'Full labels:')
+        print(labels.shape)
+
+        audio_padding, labels_padding = _get_padders(chunk_size_seconds=1.27,
+                                                     duration_seconds=math.floor(duration),
+                                                     overlap=0.5,
+                                                     audio_fs=24000,
+                                                     labels_fs=100)
+
+        # To process audio in GPU, split into chunks (that can be overlapped)
+        audio = audio_padding['padder'](audio)
+        audio_chunks = audio.unfold(dimension=1, size=audio_padding['chunk_size'],
+                                    step=audio_padding['hop_size']).permute((1, 0, 2))
+        labels = labels_padding['padder'](labels)
+        labels_chunks = labels.unfold(dimension=-1, size=labels_padding['chunk_size'],
+                                      step=labels_padding['hop_size']).permute((2,0,1,3))
+
+        print(f'Full padded audio:')
+        print(audio.shape)
+        print(f'Full padded labels:')
+        print(labels.shape)
+
+        tmp = torch.utils.data.TensorDataset(audio_chunks, labels_chunks)
+        loader = DataLoader(tmp, batch_size=batch_size, shuffle=False, drop_last=False)  # Loader per wav to get batches
+        for ctr, (audio, labels) in enumerate(loader):
+            print(f'Processing batch {ctr}')
+
+            outo = spec(audio)
+            print(f'Audio shape = {audio.shape}')
+            print(f'Spec shape = {outo.shape}')
+            print(f'Labels shape = {labels.shape}')
+
+            assert outo.shape[-1] == labels.shape[-1], \
+                'Wrong shapes, the spectrogram and labels should have the same number of frames. Check paddings and step size'
+
 
 
 def test_validation(overlap=0.5):
@@ -516,7 +632,8 @@ def test_validation(overlap=0.5):
 if __name__ == '__main__':
     from utils import seed_everything
     seed_everything(1234, mode='balanced')
-    test_dataset_train_iteration()
-    test_validation()
+    test_dataset_train_iteration()  # OK, I am happy
+    test_validation_clean()
+    #test_validation()  # Not ok , when wavs have different lengths
 
 
