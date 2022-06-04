@@ -7,7 +7,6 @@ import numpy as np
 import torchaudio
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from torchsummary import summary
 import os, shutil, math
 import yaml
 from easydict import EasyDict
@@ -15,8 +14,6 @@ from datetime import datetime
 from itertools import islice
 
 from dataset.dcase_dataset import DCASE_SELD_Dataset, InfiniteDataLoader
-from models.discriminators import DiscriminatorBasic, DiscriminatorBasicThreshold, DiscriminatorBasicSN, DiscriminatorModularThreshold
-from models.generator import CRNN10
 from solver import Solver
 #from parameters import get_parameters
 import utils
@@ -28,13 +25,13 @@ def get_parameters():
     params = {
         'seed_mode': 'balanced',
         'mode': 'train',
-        'num_iters': 500,
+        'num_iters': 5000,
         'data_n': 2,
         'batch_size': 32,
         'num_workers': 4,
-        'print_every': 50,
-        'logging_interval': 50,
-        'lr': 1e-7,
+        'print_every': 100,
+        'logging_interval': 500,
+        'lr': 1e-5,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
         'lr_min': 1e-8,
@@ -44,7 +41,7 @@ def get_parameters():
         'output_shape': [3,12,128],
         'logging_dir': './logging',
         'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-        'dataset_list': 'dcase2022_devtrain_all.txt',
+        'dataset_list': 'dcase2022_devtrain_debug.txt',
         'dataset_trim_wavs': 5,
         'dataset_chunk_size': int(24000 * 1.27),
         'dataset_chunk_mode': 'random',
@@ -90,15 +87,15 @@ def get_dataset(config):
                                  chunk_size=config.dataset_chunk_size,
                                  chunk_mode=config.dataset_chunk_mode,
                                  trim_wavs=config.dataset_trim_wavs,
-                                 multi_track=config.dataset_multitrack,
-                                 return_fname=True)
+                                 multi_track=config.dataset_multi_track,
+                                 return_fname=False)
 
 
     dataset_train, dataset_valid = torch.utils.data.random_split(dataset, [math.floor(len(dataset) * 0.8),
                                                                            math.ceil(len(dataset) * 0.2)])
-    dataloader_train = InfiniteDataLoader(dataset_train, batch_size=config.batch_size, num_workers=confignum_workers,
+    dataloader_train = InfiniteDataLoader(dataset_train, batch_size=config.batch_size, num_workers=config.num_workers,
                                           shuffle=True, drop_last=True)
-    dataloader_valid = InfiniteDataLoader(dataset_valid, batch_size=config.batch_size, num_workers=confignum_workers,
+    dataloader_valid = InfiniteDataLoader(dataset_valid, batch_size=config.batch_size, num_workers=config.num_workers,
                                           shuffle=True, drop_last=True)
 
     warnings.warn('WARNING: The validation set is not correct, as it is using the same random slicing.')
@@ -120,7 +117,7 @@ def main():
     dataloader_train, dataloader_valid = get_dataset(config)
 
     # Solver
-    solver = Solver(config=config, dataloader_train=dataloader_train, tensorboard_writer=writer)
+    solver = Solver(config=config, tensorboard_writer=writer)
 
     spectrogram_transform = nn.Sequential(
         torchaudio.transforms.MelSpectrogram(sample_rate=24000,
@@ -147,8 +144,10 @@ def main():
 
 def train(config, dataloader_train, device, features_transform: nn.Sequential, solver, writer, rec_losses):
     # Training loop
+    print('>>>>>>>> Training START  <<<<<<<<<<<<')
+
     iter_idx = 0
-    for (x, target, fnames) in islice(dataloader_train, config.num_iters):
+    for (x, target) in islice(dataloader_train, config.num_iters):
         iter_idx += 1
         x, target = x.to(device), target.to(device)
         x = features_transform(x)
@@ -209,11 +208,11 @@ def train(config, dataloader_train, device, features_transform: nn.Sequential, s
             # Save Losses for plotting later
             rec_losses.append(rec_loss.item())
 
-    fig = plots.plot_losses(np.asarray(rec_losses), None)
-    if writer is not None:
-        writer.add_figure('2losses', fig, None)
+#    fig = plots.plot_losses(np.asarray(rec_losses), None)
+#    if writer is not None:
+#        writer.add_figure('2losses', fig, None)
 
-    print('>>>>>>>> Finished <<<<<<<<<<<<')
+    print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
 
 
 def valid(config, dataloader_valid, device, features_transform: nn.Sequential, solver, writer, rec_losses):

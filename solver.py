@@ -33,7 +33,7 @@ class Solver(object):
         self._fixed_label = None
 
         # These are the names for the losses that will be saved
-        self.loss_names = ['G_rec']
+        self.loss_names = ['rec']
         self.losses = {x: 0 for x in self.loss_names}
         self.predictor = self.build_predictor()
         self.init_optimizers()
@@ -46,16 +46,16 @@ class Solver(object):
         predictor = CRNN10(class_num=self.config.output_shape[1],
                            out_channels=self.config.output_shape[0],
                            in_channels=self.config.input_shape[0],
-                           multi_track=self.config.multi_track)
+                           multi_track=self.config.dataset_multi_track)
         return predictor.to(self.device)
 
     def init_optimizers(self):
-        self.optimizer_predictor = optim.Adam(self.predictor.parameters(), lr=self.config.G_lr, betas=(0.5, 0.999))
+        self.optimizer_predictor = optim.Adam(self.predictor.parameters(), lr=self.config.lr, betas=(0.5, 0.999))
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer_predictor,
-            factor=self.config.G_lr_decay_rate,
-            patience=self.config.G_lr_patience_times,
-            min_lr=self.config.G_lr_min
+            factor=self.config.lr_decay_rate,
+            patience=self.config.lr_patience_times,
+            min_lr=self.config.lr_min
         )
         self.lr_scheduler = GradualWarmupScheduler(
             self.optimizer_predictor,
@@ -99,7 +99,7 @@ class Solver(object):
         """Calculate GAN and reconstruction loss for the generator"""
         loss_G_rec = self.criterionRec(self.data_gen['y_hat'], self.data_gen['y'])
         # Total weighted loss
-        self.losses['G_rec'] = loss_G_rec
+        self.losses['rec'] = loss_G_rec
         loss_G = loss_G_rec
         loss_G.backward()
 
