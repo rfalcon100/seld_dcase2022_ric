@@ -270,20 +270,21 @@ class DCASE_SELD_Dataset(Dataset):
             - Fixed - Returns a slice at fixed start time of each wav. Useful for debugging.
             - Random - Returns a random slice each time.
         return_fname - Returns fname during the getitem
+        multi_track - Enables multi-track ACCDOA for the labels
     """
     def __init__(self,
                  directory_root: str = './data/',
                  list_dataset: str = 'dcase2021t3_foa_overfit_vrgpu.txt',
                  trim_wavs: float = -1,  # in seconds
                  chunk_size: int = 48000,  # in samples
-                 chuck_mode: str = 'fixed',
+                 chunk_mode: str = 'fixed',
                  return_fname: bool = False,
                  multi_track: bool = False):
         super().__init__()
         self.directory_root = directory_root
         self.list_dataset = list_dataset  # list of wav filenames  , e.g. './data_dcase2021_task3/foa_dev/dev-val/fold5_room1_mix001.wav'
         self.chunk_size_audio = chunk_size
-        self.chunk_mode = chuck_mode
+        self.chunk_mode = chunk_mode
         self.trim_wavs = trim_wavs  # Trims the inputs wavs to the selected length in seconds
         self.return_fname = return_fname
         self.multi_track = multi_track
@@ -363,7 +364,7 @@ def test_dataset_train_iteration(num_iters=100, batch_size=32, num_workers=4):
     dataset_train = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
                                        list_dataset='dcase2022_devtrain_all.txt',
                                        chunk_size=int(24000 * 1.27),
-                                       chuck_mode='random',
+                                       chunk_mode='random',
                                        trim_wavs=-1,
                                        return_fname=True)
     loader_train = InfiniteDataLoader(dataset_train, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
@@ -447,7 +448,7 @@ def test_validation_clean():
     batch_size = 32  # This depends on GPU memory
     dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
                                  list_dataset='dcase2022_devtrain_debug.txt',
-                                 chuck_mode='full',
+                                 chunk_mode='full',
                                  trim_wavs=-1,
                                  return_fname=True)
 
@@ -503,137 +504,11 @@ def test_validation_clean():
                 'Wrong shapes, the spectrogram and labels should have the same number of frames. Check paddings and step size'
 
 
-
-def test_validation(overlap=0.5):
-    # Here I am testing how to do the validation
-    # The idea is that I want to iterate the full wavs, to get the predictions
-    # So we get full length audio and labels from the dataset
-    # Then we split into chunks manually
-    # And iterate over wavs, using a dataloader for each one
-    # Other useful function, torch.chunks, torch.split
-
-    # General
-    gen_length = 60
-    gen_overlap = overlap  # TODO not sure about this part
-    gen_chunk_size = 1.27
-
-    # Wavs:
-    fs = 24000
-    audio_full_size = fs * gen_length
-    audio_chunk_size = int(fs * gen_chunk_size)
-    audio_pad_size = int(audio_full_size % audio_chunk_size) + 240*2  #  TODO HARCODED 2 times the hopsize
-    audio_padder = nn.ConstantPad1d(padding=(0, audio_pad_size), value=0.0)
-    audio_step_size = int(audio_chunk_size * gen_overlap)
-    #audio_step_size = int(10 * fs)  # Hardcoded to 10 ms
-
-    # Labels:
-    labels_fs = 100  # 10 ms
-    labels_full_size = labels_fs * gen_length
-    labels_chunk_size = int(labels_fs * gen_chunk_size) + 1
-    labels_pad_size = int(labels_full_size % labels_chunk_size) + 1
-    labels_padder = nn.ConstantPad2d(padding=(0, labels_pad_size, 0, 0), value=0.0)
-    labels_step_size = int(labels_chunk_size * gen_overlap)
-
-    batch_size = 32  # This depends on GPU memory
-    dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-                                       list_dataset='dcase2022_devtrain_debug.txt',
-                                       chunk_size=audio_chunk_size,
-                                       chuck_mode='full',
-                                       trim_wavs=60,
-                                       return_fname=True)
-
-    spec = torchaudio.transforms.Spectrogram(
-        n_fft=512,
-        win_length=512,
-        hop_length=240,
-    )
-    print(f'Iterating {len(dataset)} fnames in dataset.')
-    for i in range(len(dataset)):
-        # Analyze audio in full size
-        audio, labels, fname = dataset[i]
-
-        print(f'Full audio:')
-        print(audio.shape)
-        print(f'Full spec:')
-        print(spec(audio).shape)
-        print(f'Full labels:')
-        print(labels.shape)
-
-        yolo = spec(audio)  # This is ok, [4, 257, 6001]
-        # To process audio in GPU, split into chunks (that can be overlapped)
-        audio = audio_padder(audio)
-        audio_chunks = audio.unfold(dimension=1, size=audio_chunk_size, step=audio_step_size).permute((1, 0, 2))
-        labels = labels_padder(labels)
-        labels_chunks = labels.unfold(dimension=-1, size=labels_chunk_size, step=labels_step_size).permute((2,0,1,3))
-        spectos = spec(audio)
-        spectos_chunks = spectos.unfold(dimension=-1, size=labels_chunk_size, step=labels_step_size).permute((2,0,1,3))
-
-        print(f'Full padded audio:')
-        print(audio.shape)
-        print(f'Full padded spec:')
-        print(spectos.shape)
-        print(f'Full padded labels:')
-        print(labels.shape)
-        tmp = torch.utils.data.TensorDataset(audio_chunks, labels_chunks)
-        loader = DataLoader(tmp, batch_size=batch_size, shuffle=False, drop_last=False)  # Loader per wav to get batches
-        for ctr, (audio, labels) in enumerate(loader):
-            print(f'Processing batch {ctr}')
-
-            outo = spec(audio)
-            print(f'Audio shape = {audio.shape}')
-            print(f'Spec shape = {outo.shape}')
-            print(f'Labels shape = {labels.shape}')
-
-            assert outo.shape[-1] == labels.shape[-1], \
-                'Wrong shapes, the spectrogram and labels should have the same number of frames. Check paddings and step size'
-
-
-# Looks ok now, but not perfect:
-# Iterating 1 fnames in dataset.
-# Full audio:
-# torch.Size([4, 1440000])
-# Full spec:
-# torch.Size([4, 257, 6001])   # this is good, it matches the labels
-# Full labels:
-# torch.Size([3, 12, 6001])
-# Full padded audio:
-# torch.Size([4, 1447920])
-# Full padded spec:
-# torch.Size([4, 257, 6034])  # this is wrong, mismatch the spec
-# Full padded labels:
-# torch.Size([3, 12, 6114])
-# Processing batch 0
-# Audio shape = torch.Size([32, 4, 30480])
-# Spec shape = torch.Size([32, 4, 257, 128])
-# Labels shape = torch.Size([32, 3, 12, 128])
-
-# The problem is that the spec is doing a padding per chunk on its own
-# so I can match with the labels
-# but not when working with the full length
-
-# So if I use Full, and do the chunking myself, the problem is that the each spec is going to be padded
-# So the labels will not match the lenght of the full spec
-# However, for analysis, I dont need the specs
-# So I can do the chunking myself
-# I think
-
-# Update 02.06.2022
-# I think this works OK for validation and for analysis.
-# For analysis I would set the overlap = 1 (which is basically step size, not overlap)
-# Then do my analysis
-# For validaiton, I can use overlap, but then I need to someone do the postporcessing
-
-# There is an issue with DCASE2022, because wavs can have different sizes.
-# So when using full, I dont get the expected sizes for the labels.
-# I need to double check this
-
-
-
 if __name__ == '__main__':
     from utils import seed_everything
     seed_everything(1234, mode='balanced')
     test_dataset_train_iteration()  # OK, I am happy
     test_validation_clean()
-    #test_validation()  # Not ok , when wavs have different lengths
+    print('End of test')
 
 
