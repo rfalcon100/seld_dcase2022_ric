@@ -4,17 +4,11 @@ import math
 import numpy as np
 import os.path
 import torch
-import warnings
-import pandas as pd
-import scipy.io
-import scipy
-from tqdm import tqdm
-from random import sample
-from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torchaudio
 import torch.nn as nn
-from torchvision.transforms import Compose, Lambda, ToTensor
-from torchaudio import transforms
+from torch.utils.data import Dataset, DataLoader
+import warnings
+import pandas as pd
 
 from utils import validate_audio
 
@@ -250,6 +244,27 @@ class InfiniteDataLoader(DataLoader):
             batch = next(self.dataset_iterator)
         return batch
 
+
+class YoloLoader(DataLoader):
+    ''' DataLoader that keeps returning batches even after the dataset is exhausted.
+    Useful when the __getitem__ of the dataset returns a random slice.
+
+    Ref:
+    https://gist.github.com/MFreidank/821cc87b012c53fade03b0c7aba13958
+    '''
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Initialize an iterator over the dataset.
+        self.dataset_iterator = iter(self)
+
+    def __next__(self):
+        try:
+            batch = next(self.dataset_iterator)
+        except StopIteration:
+            # Dataset exhausted, use a new fresh iterator.
+            self.dataset_iterator = iter(self)
+            batch = next(self.dataset_iterator)
+        return batch
 
 class DCASE_SELD_Dataset(Dataset):
     """Dataset for the DCASE SELD (Task3), supports version 2021 and 2022.

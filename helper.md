@@ -25,3 +25,15 @@ find ./data_dcase2022/foa_dev/*test* -type f > data_dcase2022/list_dataset/dcase
 dcase2022_devtest_all.txt  
 dcase2022_devtrain_all.txt
 ```
+
+
+## Debugger Fix for the custom Infinitedataloader
+
+Set the:
+- Build. Execution, Deployment > Python Debugger
+- Geven compatible --> checked
+
+Also (maybe):
+- Set the variables loading policy --> Synchronously
+
+https://codehunter.cc/a/python-3.x/debugger-times-out-at-collecting-data
