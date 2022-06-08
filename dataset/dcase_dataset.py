@@ -188,7 +188,7 @@ def _read_audio_and_time_array(fname: str, time_array: List, directory_root: str
 
 
 def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float,
-                  trim_wavs: int, clip_length_seconds: int = 60, multi_track: bool = False) \
+                  trim_wavs: int, clip_length_seconds: int = 60, multi_track: bool = False, num_classes=13) \
         -> Tuple[torch.Tensor, torch.Tensor]:
     """Returns a random slice of an audio and its corresponding time array (label)"""
 
@@ -203,19 +203,19 @@ def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_aud
     start_index = start_sec * fs
     sliced_audio = audio[:, start_index[0]: start_index[0] + round(chunk_size_audio)]
     label = _get_labels(time_array, start_sec, fs, chunk_size_audio=chunk_size_audio,
-                        rotation_pattern=None, multi_track=multi_track)
+                        rotation_pattern=None, multi_track=multi_track, num_classes=num_classes)
 
     return sliced_audio, label
 
 
-def _fixed_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float):
+def _fixed_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float, num_classes=13):
     """Returns a fixed slice of an audio and its corresponding time array (label)"""
     start_sec = 5  # Hardcoded start at 5 seconds
     start_sample = start_sec * fs
 
     sliced_audio = audio[:, start_sample : int(start_sample + chunk_size_audio)]
     label = _get_labels(time_array, start_sec, fs=fs, chunk_size_audio=chunk_size_audio,
-                        rotation_pattern=None, multi_track=False)
+                        rotation_pattern=None, multi_track=False, num_classes=num_classes)
 
     return sliced_audio, label
 
@@ -245,27 +245,6 @@ class InfiniteDataLoader(DataLoader):
         return batch
 
 
-class YoloLoader(DataLoader):
-    ''' DataLoader that keeps returning batches even after the dataset is exhausted.
-    Useful when the __getitem__ of the dataset returns a random slice.
-
-    Ref:
-    https://gist.github.com/MFreidank/821cc87b012c53fade03b0c7aba13958
-    '''
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Initialize an iterator over the dataset.
-        self.dataset_iterator = iter(self)
-
-    def __next__(self):
-        try:
-            batch = next(self.dataset_iterator)
-        except StopIteration:
-            # Dataset exhausted, use a new fresh iterator.
-            self.dataset_iterator = iter(self)
-            batch = next(self.dataset_iterator)
-        return batch
-
 class DCASE_SELD_Dataset(Dataset):
     """Dataset for the DCASE SELD (Task3), supports version 2021 and 2022.
 
@@ -294,7 +273,8 @@ class DCASE_SELD_Dataset(Dataset):
                  chunk_size: int = 48000,  # in samples
                  chunk_mode: str = 'fixed',
                  return_fname: bool = False,
-                 multi_track: bool = False):
+                 multi_track: bool = False,
+                 num_classes: int = 13):
         super().__init__()
         self.directory_root = directory_root
         self.list_dataset = list_dataset  # list of wav filenames  , e.g. './data_dcase2021_task3/foa_dev/dev-val/fold5_room1_mix001.wav'
@@ -303,6 +283,7 @@ class DCASE_SELD_Dataset(Dataset):
         self.trim_wavs = trim_wavs  # Trims the inputs wavs to the selected length in seconds
         self.return_fname = return_fname
         self.multi_track = multi_track
+        self.num_classes = num_classes
         self.resampler = None
 
         self._fnames = []
@@ -355,13 +336,13 @@ class DCASE_SELD_Dataset(Dataset):
 
         # Select a slice
         if self.chunk_mode == 'fixed':
-            audio, label = _fixed_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio)
+            audio, label = _fixed_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio, num_classes=self.num_classes)
         elif self.chunk_mode == 'random':
-            audio, label = _random_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio,
+            audio, label = _random_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio, num_classes=self.num_classes,
                                          trim_wavs=self.trim_wavs, clip_length_seconds=duration, multi_track=self.multi_track)
         elif self.chunk_mode == 'full':
             label = _get_labels(time_array, start_sec=0, fs=fs, chunk_size_audio=audio.shape[-1], rotation_pattern=None,
-                                multi_track=self.multi_track)
+                                multi_track=self.multi_track, num_classes=self.num_classes)
         if self.return_fname:
             return audio, torch.from_numpy(label.astype(np.float32)), fname
         else:
@@ -462,7 +443,7 @@ def test_validation_clean():
 
     batch_size = 32  # This depends on GPU memory
     dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 list_dataset='dcase2022_devtrain_all.txt',
                                  chunk_mode='full',
                                  trim_wavs=-1,
                                  return_fname=True)
@@ -473,11 +454,13 @@ def test_validation_clean():
         hop_length=240,
     )
 
+    all_labels = []
     print(f'Iterating {len(dataset)} fnames in dataset.')
     for i in range(len(dataset)):
         # Analyze audio in full size
         audio, labels, fname = dataset[i]
         duration = dataset.durations[fname]
+        all_labels.append(labels)
 
         print(f'Full audio:')
         print(audio.shape)
@@ -488,7 +471,7 @@ def test_validation_clean():
 
         audio_padding, labels_padding = _get_padders(chunk_size_seconds=1.27,
                                                      duration_seconds=math.floor(duration),
-                                                     overlap=0.5,
+                                                     overlap=1,
                                                      audio_fs=24000,
                                                      labels_fs=100)
 
@@ -518,10 +501,84 @@ def test_validation_clean():
             assert outo.shape[-1] == labels.shape[-1], \
                 'Wrong shapes, the spectrogram and labels should have the same number of frames. Check paddings and step size'
 
+    # Analysis of labels
+    count_active_classes(all_labels)
+
+    # breaks in wav 43 or 42 with overlap
+
+
+def test_validation_histograms():
+    # Here I am testing how to do the validation
+    # The idea is that I want to iterate the full wavs, to get the predictions
+    # So we get full length audio and labels from the dataset
+    # Then we split into chunks manually
+    # And iterate over wavs, using a dataloader for each one
+    # Other useful function, torch.chunks, torch.split
+
+    batch_size = 32  # This depends on GPU memory
+    dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                 list_dataset='dcase2022_devtrain_all.txt',
+                                 chunk_mode='full',
+                                 trim_wavs=-1,
+                                 return_fname=True,
+                                 num_classes=13)
+
+    spec = torchaudio.transforms.Spectrogram(
+        n_fft=512,
+        win_length=512,
+        hop_length=240,
+    )
+
+    all_labels = []
+    print(f'Iterating {len(dataset)} fnames in dataset.')
+    for i in range(len(dataset)):
+        # Analyze audio in full size
+        audio, labels, fname = dataset[i]
+        all_labels.append(labels)
+
+    # Analysis of labels
+    count_active_classes(all_labels)
+
+def count_active_classes(all_labels: List, detection_threshold=0.5):
+    """ Useful function to get the histogram of active classes per frames.
+    Tip: Call it with only one label to get the plot.
+        count_active_classes(all_labels[0:1])
+    """
+    import plots
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    if len(all_labels) == 1:
+        plots.plot_labels_cross_sections(all_labels[0], plot_cartesian=True)
+
+    all_count_detections = {}
+    for i in range(len(all_labels)):
+        this_label = all_labels[i]
+        vec_norms = torch.linalg.vector_norm(this_label, ord=2, dim=-3)
+
+        for cls in range(this_label.shape[-2]):
+            mask_detected_events = vec_norms[cls, :] > detection_threshold  # detected events for this class
+            # mask_detected_events = mask_detected_events.repeat(1, 3, 1)
+            tmp_events = this_label[..., cls, mask_detected_events]
+            # detections = tmp_events[mask_detected_events]
+            this_count_detections = mask_detected_events.nonzero(as_tuple=False)
+            if cls in all_count_detections.keys():
+                all_count_detections[cls] += len(this_count_detections)
+            else:
+                all_count_detections[cls] = len(this_count_detections)
+
+    f, ax = plt.subplots(figsize=(10, 15))
+    df = pd.DataFrame(list(all_count_detections.items()))
+    df.columns = ['class_id', 'count']
+    sns.barplot(x="class_id", y="count", data=df,
+                label="class_id", color="b")
+    sns.despine(left=False, bottom=False)
+    plt.show()
 
 if __name__ == '__main__':
     from utils import seed_everything
     seed_everything(1234, mode='balanced')
+    test_validation_histograms()
     test_dataset_train_iteration()  # OK, I am happy
     test_validation_clean()
     print('End of test')

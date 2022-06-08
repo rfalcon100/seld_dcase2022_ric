@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 import os, shutil, math
 import yaml
+import time
 from easydict import EasyDict
 from datetime import datetime
 from itertools import islice
@@ -32,7 +33,7 @@ def get_parameters():
         'batch_size': 2,
         'num_workers': 4,
         'print_every': 50,
-        'logging_interval': 5,
+        'logging_interval': 500,
         'lr': 1e-5,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
@@ -44,14 +45,20 @@ def get_parameters():
         'logging_dir': './logging',
         'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
         'dataset_list_train': 'dcase2022_devtrain_debug.txt',
-        'dataset_list_valid': 'dcase2022_devtest_debug.txt',
+        'dataset_list_valid': 'dcase2022_devtrain_debug.txt',
         'dataset_trim_wavs': 5,
         'dataset_chunk_size': int(24000 * 1.27),
         'dataset_chunk_mode': 'random',
         'dataset_multi_track': False,
-        'unique_classes': 12,
         'thresh_unify': 15,
     }
+
+    if '2020' in params['dataset_root']:
+        params['unique_classes'] = 14
+    elif '2021' in params['dataset_root']:
+        params['unique_classes'] = 12
+    elif '2022' in params['dataset_root']:
+        params['unique_classes'] = 13
 
     if 'debug' in params['exp_name']:
         params['experiment_description'] = f'{params["exp_name"]}'
@@ -79,7 +86,9 @@ def get_parameters():
         print('{} \t {}'.format(k.ljust(15, ' '), v))
     print("")
 
-    # Save config to disk
+    # Save config to disk, create directories if needed
+    if 'debug' in params['logging_dir'] and os.path.exists(params['logging_dir']):
+        shutil.rmtree(params['logging_dir'])
     if not os.path.exists(params['logging_dir']):
         os.mkdir(params['logging_dir'])
     with open(os.path.join(params['logging_dir'] , 'params.yaml'), 'w') as f:
@@ -157,10 +166,10 @@ def main():
 def train_iteration(config, dataloader_train, dataset_valid, device, features_transform: nn.Sequential, solver, writer, rec_losses):
     # Training loop
     print('>>>>>>>> Training START  <<<<<<<<<<<<')
+    start_time = time.time()
 
     iter_idx = 0
     for (x, target) in islice(dataloader_train, config.num_iters):
-        print(f'iteration {iter_idx}')
         iter_idx += 1
         x, target = x.to(device), target.to(device)
         x = features_transform(x)
@@ -222,9 +231,20 @@ def train_iteration(config, dataloader_train, dataset_valid, device, features_tr
             rec_losses.append(rec_loss.item())
 
         # Validation
+        train_time = time.time() - start_time
         if (iter_idx % config.logging_interval == 0):
-            eval_iteration(config, dataset=dataset_valid, model=solver.predictor, device=device, criterion=torch.nn.MSELoss(),
-                           features_transform=features_transform, dcase_output_folder=config['directory_output_results'])
+            seld_metrics, val_loss = eval_iteration(config, dataset=dataset_valid, model=solver.predictor, device=device, criterion=torch.nn.MSELoss(),   # TODO change the criterion
+                                      features_transform=features_transform, dcase_output_folder=config['directory_output_results'])
+
+            # Print stats
+            print(
+                'iteration: {}/{}, time: {:0.2f}, '
+                'train_loss: {:0.4f}, val_loss: {:0.4f}, '
+                'ER/F/LE/LR/SELD: {}, '.format(
+                    iter_idx, config.num_iters, train_time,
+                    rec_loss.item(), val_loss,
+                    '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),
+                ))
 
 #    fig = plots.plot_losses(np.asarray(rec_losses), None)
 #    if writer is not None:
@@ -411,20 +431,6 @@ def eval_iteration(config, dataset, model, criterion, features_transform, dcase_
     config.eval = 'ss'
     all_test_metric = all_seld_eval(config, directory_root=dataset.directory_root, fnames=dataset._fnames, pred_directory=dcase_output_folder)
 
-    # Print stats
-    print(
-        'epoch: {}, time: {:0.2f}/{:0.2f}, '
-        # 'train_loss: {:0.2f}, val_loss: {:0.2f}, '
-        'train_loss: {:0.4f}, val_loss: {:0.4f}, '
-        'ER/F/LE/LR/SELD: {}, '
-        'best_val_epoch: {} {}'.format(
-            epoch_cnt, train_time, val_time,
-            train_loss, val_loss,
-            '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(val_ER, val_F, val_LE, val_LR, val_seld_scr),
-            best_val_epoch,
-            '({:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f})'.format(best_ER, best_F, best_LE, best_LR, best_seld_scr))
-    )
-    
     return all_test_metric, test_loss
 
 

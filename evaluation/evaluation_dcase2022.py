@@ -80,7 +80,7 @@ def all_seld_eval(args, directory_root, fnames, pred_directory, result_path=None
     score_obj = cls_compute_seld_results.ComputeSELDResults(params, ref_files_folder=ref_desc_files)
 
     seld_metric = score_obj.get_SELD_Results(pred_output_format_files)
-    val_ER, val_F, val_LE, val_LR, val_seld_scr, classwise_val_scr = *seld_metric
+    val_ER, val_F, val_LE, val_LR, val_seld_scr, classwise_val_scr = seld_metric
 
     return seld_metric
     print('DCASE2022 Scores')
