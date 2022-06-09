@@ -570,9 +570,10 @@ def count_active_classes(all_labels: List, detection_threshold=0.5):
     f, ax = plt.subplots(figsize=(10, 15))
     df = pd.DataFrame(list(all_count_detections.items()))
     df.columns = ['class_id', 'count']
-    sns.barplot(x="class_id", y="count", data=df,
-                label="class_id", color="b")
+    g = sns.barplot(x="class_id", y="count", data=df,
+                    label="class_id", color="b")
     sns.despine(left=False, bottom=False)
+    #g.set_yscale("log")
     plt.show()
 
 if __name__ == '__main__':

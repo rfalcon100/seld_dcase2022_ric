@@ -8,6 +8,7 @@ from torchsummary import summary
 
 from utils import GradualWarmupScheduler
 from models.crnn import CRNN10, CRNN
+from models.losses import MSELoss_ADPIT
 
 
 class Solver(object):
@@ -32,12 +33,14 @@ class Solver(object):
         self._fixed_input_counter = 0
         self._fixed_label = None
 
-        # These are the names for the losses that will be saved
+        # If using multiple losses, each loss has a name, value, and function (criterion)
         self.loss_names = ['rec']
-        self.losses = {x: 0 for x in self.loss_names}
+        self.loss_values = {x: 0 for x in self.loss_names}
+        self.loss_fns = {x: self._get_loss_fn() for x in self.loss_names}
+
+        # Build models
         self.predictor = self.build_predictor()
         self.init_optimizers()
-        self.criterionRec = nn.MSELoss()
 
         print(f'Input predictor = {self.config.input_shape}')
         summary(self.predictor, input_size=tuple(self.config.input_shape))
@@ -48,6 +51,18 @@ class Solver(object):
                            in_channels=self.config.input_shape[0],
                            multi_track=self.config.dataset_multi_track)
         return predictor.to(self.device)
+
+    def _get_loss_fn(self) -> torch.nn.Module:
+        loss_fn = None
+        if self.config['dataset_multi_track']:
+            loss_fn = MSELoss_ADPIT()
+        elif self.config.model_loss_fn == 'mse':
+            loss_fn = torch.nn.MSELoss()
+        elif self.config.model_loss_fn == 'bce':
+            loss_fn = torch.nn.BCEWithLogitsLoss()
+
+        assert loss_fn is not None, 'Wrong loss function'
+        return loss_fn
 
     def init_optimizers(self):
         self.optimizer_predictor = optim.Adam(self.predictor.parameters(), lr=self.config.lr, betas=(0.5, 0.999))
@@ -97,11 +112,10 @@ class Solver(object):
 
     def backward_predictor(self):
         """Calculate GAN and reconstruction loss for the generator"""
-        loss_G_rec = self.criterionRec(self.data_gen['y_hat'], self.data_gen['y'])
+        loss_G_rec = self.loss_fns['rec'](self.data_gen['y_hat'], self.data_gen['y'])
         # Total weighted loss
-        self.losses['rec'] = loss_G_rec
-        loss_G = loss_G_rec
-        loss_G.backward()
+        self.loss_values['rec'] = loss_G_rec
+        loss_G_rec.backward()
 
     def train_step(self):
         """ Calculates losses, gradients, and updates the network parameters"""

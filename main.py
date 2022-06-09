@@ -29,24 +29,25 @@ def get_parameters():
         'exp_name': 'debug',
         'seed_mode': 'balanced',
         'mode': 'train',
-        'num_iters': 5000,
+        'num_iters': 10000,
         'batch_size': 2,
-        'num_workers': 4,
+        'num_workers': 5,
         'print_every': 50,
         'logging_interval': 500,
-        'lr': 1e-5,
+        'lr': 1e-4,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
-        'lr_min': 1e-8,
+        'lr_min': 1e-7,
         'model': 'crnn10',
         'model_normalization': 'batchnorm',
+        'model_loss_fn': 'mse',
         'input_shape': [4,96,128],
         'output_shape': [3,12,128],
         'logging_dir': './logging',
         'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
         'dataset_list_train': 'dcase2022_devtrain_debug.txt',
         'dataset_list_valid': 'dcase2022_devtrain_debug.txt',
-        'dataset_trim_wavs': 5,
+        'dataset_trim_wavs': -1,
         'dataset_chunk_size': int(24000 * 1.27),
         'dataset_chunk_mode': 'random',
         'dataset_multi_track': False,
@@ -55,10 +56,13 @@ def get_parameters():
 
     if '2020' in params['dataset_root']:
         params['unique_classes'] = 14
+        params['output_shape'][-2] = 14
     elif '2021' in params['dataset_root']:
         params['unique_classes'] = 12
+        params['output_shape'][-2] = 12
     elif '2022' in params['dataset_root']:
         params['unique_classes'] = 13
+        params['output_shape'][-2] = 13
 
     if 'debug' in params['exp_name']:
         params['experiment_description'] = f'{params["exp_name"]}'
@@ -108,6 +112,7 @@ def get_dataset(config):
                                        chunk_mode=config.dataset_chunk_mode,
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
+                                       num_classes=config.unique_classes,
                                        return_fname=False)
     dataloader_train = InfiniteDataLoader(dataset_train, batch_size=config.batch_size, num_workers=config.num_workers,
                                           shuffle=True, drop_last=True)
@@ -118,6 +123,7 @@ def get_dataset(config):
                                        chunk_mode='full',
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
+                                       num_classes=config.unique_classes,
                                        return_fname=True)
 
     return dataloader_train, dataset_valid
@@ -147,29 +153,62 @@ def main():
                                              n_mels=96),
         torchaudio.transforms.AmplitudeToDB()).to(device)
 
+    spectrogram_transform = nn.Sequential(
+        torchaudio.transforms.Spectrogram(n_fft=512,
+                                         hop_length=240),
+        torchaudio.transforms.AmplitudeToDB()).to(device)
+
     # Initial loss:
     x, target = dataloader_train.dataset[0]
     x, target = spectrogram_transform(x.unsqueeze(0).to(device)), target.to(device)
     solver.predictor.eval()
     out = solver.predictor(x)
-    loss = solver.criterionRec(out, target)
+    loss = solver.loss_fns[solver.loss_names[0]](out, target)
     print('Initial loss = {:.6f}'.format(loss.item()))
-    rec_losses = []
+
+    # Monitoring variables
+    #timer = None
+    loss_train, loss_valid, metrics_valid = 0, 0, None
+    curr_validation_step, num_validation_epcohs = 0, math.floor(config.num_iters / config.logging_interval)
+
+
 
     if config.mode == 'train':
-        train_iteration(config, dataloader_train=dataloader_train, dataset_valid=dataset_valid, device=device,
-              features_transform=spectrogram_transform, solver=solver, writer=writer, rec_losses=rec_losses)
+        print('>>>>>>>> Training START  <<<<<<<<<<<<')
+        start_time = time.time()
+        iter_idx = 0
+        for curr_validation_step in range(num_validation_epcohs):
+            iter_idx, train_loss = train_iteration(config, dataloader_train=dataloader_train, iter_idx=iter_idx,
+                                                   device=device, features_transform=spectrogram_transform,
+                                                   solver=solver, writer=writer)
+            seld_metrics, val_loss = eval_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
+                                                    device=device, features_transform=spectrogram_transform,
+                                                    solver=solver, writer=writer,
+                                                    dcase_output_folder=config['directory_output_results'])
+            # Schedulers
+            solver.lr_step(val_loss, step=iter_idx)  # Scheduler  TODO this wrong
+
+            curr_time = time.time() - start_time
+            # Print stats
+            print(
+                'iteration: {}/{}, time: {:0.2f}, '
+                'train_loss: {:0.4f}, val_loss: {:0.4f}, '
+                'ER/F/LE/LR/SELD: {}, '.format(
+                    iter_idx, config.num_iters, curr_time,
+                    train_loss, val_loss,
+                    '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),
+                ))
+
+            if iter_idx >= config.num_iters:
+                break
+        print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
     elif config.mode == 'eval':
         raise NotImplementedError
 
 
-def train_iteration(config, dataloader_train, dataset_valid, device, features_transform: nn.Sequential, solver, writer, rec_losses):
+def train_iteration(config, dataloader_train, iter_idx, device, features_transform: nn.Sequential, solver, writer):
     # Training loop
-    print('>>>>>>>> Training START  <<<<<<<<<<<<')
-    start_time = time.time()
-
-    iter_idx = 0
-    for (x, target) in islice(dataloader_train, config.num_iters):
+    for (x, target) in islice(dataloader_train, config.logging_interval):
         iter_idx += 1
         x, target = x.to(device), target.to(device)
         x = features_transform(x)
@@ -177,15 +216,14 @@ def train_iteration(config, dataloader_train, dataset_valid, device, features_tr
         solver.train_step()
 
         # Output training stats
-        rec_loss = solver.losses['rec']
+        rec_loss = solver.loss_values['rec']
 
-        # Schedulers
-        solver.lr_step(rec_loss.item(), step=iter_idx)  # Scheduler
+
 
         # Logging and printing
         if writer is not None:
             step = iter_idx
-            writer.add_scalar('losses/rec_loss', rec_loss.item(), step)
+            writer.add_scalar('losses/train', rec_loss.item(), step)
 
             # Learning rates
             lr = solver.get_lrs()
@@ -227,49 +265,30 @@ def train_iteration(config, dataloader_train, dataset_valid, device, features_tr
                 fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
                 writer.add_figure('fixed_error/train', fig, iter_idx)
 
-            # Save Losses for plotting later
-            rec_losses.append(rec_loss.item())
-
-        # Validation
-        train_time = time.time() - start_time
-        if (iter_idx % config.logging_interval == 0):
-            seld_metrics, val_loss = eval_iteration(config, dataset=dataset_valid, model=solver.predictor, device=device, criterion=torch.nn.MSELoss(),   # TODO change the criterion
-                                      features_transform=features_transform, dcase_output_folder=config['directory_output_results'])
-
-            # Print stats
-            print(
-                'iteration: {}/{}, time: {:0.2f}, '
-                'train_loss: {:0.4f}, val_loss: {:0.4f}, '
-                'ER/F/LE/LR/SELD: {}, '.format(
-                    iter_idx, config.num_iters, train_time,
-                    rec_loss.item(), val_loss,
-                    '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),
-                ))
-
-#    fig = plots.plot_losses(np.asarray(rec_losses), None)
-#    if writer is not None:
-#        writer.add_figure('2losses', fig, None)
-
-    print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
+    return iter_idx, rec_loss.item()
 
 
-def eval_iteration(config, dataset, model, criterion, features_transform, dcase_output_folder, device):
+def eval_iteration(config, dataset, iter_idx, solver, features_transform, dcase_output_folder, device, writer):
     # Adapted from the official baseline
 
     nb_test_batches, test_loss = 0, 0.
+    model = solver.predictor
     model.eval()
     file_cnt = 0
 
     print(f'Evaluation: {len(dataset)} fnames in dataset.')
     with torch.no_grad():
-        for audio, target, fname in dataset:
+        for ctr, (audio, target, fname) in enumerate(dataset):
             # load one batch of data
-            audio, target = torch.tensor(audio).to(device).float(), torch.tensor(target).to(device).float()
+            audio, target = audio.to(device), target.to(device)
             duration = dataset.durations[fname]
+            print(f'Evaluating file {ctr}/{len(dataset)}: {fname}')
+            print(f'Audio shape: {audio.shape}')
+            print(f'Target shape: {target.shape}')
 
             audio_padding, labels_padding = _get_padders(chunk_size_seconds=1.27,
                                                          duration_seconds=math.floor(duration),
-                                                         overlap=0.5,
+                                                         overlap=1,
                                                          audio_fs=dataset._fs[fname],
                                                          labels_fs=100)
 
@@ -288,7 +307,7 @@ def eval_iteration(config, dataset, model, criterion, features_transform, dcase_
             for ctr, (audio, labels) in enumerate(loader):
                 audio = features_transform(audio)
                 output = model(audio)
-                loss = criterion(output, labels)
+                loss = solver.loss_fns[solver.loss_names[0]](output, labels)
                 full_output.append(output)
                 full_loss.append(loss)
 
@@ -428,11 +447,17 @@ def eval_iteration(config, dataset, model, criterion, features_transform, dcase_
 
         test_loss /= nb_test_batches
 
-    config.eval = 'ss'
     all_test_metric = all_seld_eval(config, directory_root=dataset.directory_root, fnames=dataset._fnames, pred_directory=dcase_output_folder)
 
-    return all_test_metric, test_loss
+    if writer is not None:
+        writer.add_scalar('Losses/valid', test_loss, iter_idx)
+        writer.add_scalar('Metrics/ER', all_test_metric[0], iter_idx)
+        writer.add_scalar('Metrics/F', all_test_metric[1], iter_idx)
+        writer.add_scalar('Metrics/LE', all_test_metric[2], iter_idx)
+        writer.add_scalar('Metrics/LR', all_test_metric[3], iter_idx)
+        writer.add_scalar('Metrics/SELD', all_test_metric[4], iter_idx)
 
+    return all_test_metric, test_loss
 
 if __name__ == '__main__':
     main()

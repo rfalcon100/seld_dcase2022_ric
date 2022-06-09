@@ -170,6 +170,6 @@ def get_params(argv='1'):
     elif '2022' in params['dataset_dir']:
         params['unique_classes'] = 13
 
-    for key, value in params.items():
-        print("\t{}: {}".format(key, value))
+    #for key, value in params.items():
+    #    print("\t{}: {}".format(key, value))
     return params

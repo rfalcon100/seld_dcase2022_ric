@@ -37,3 +37,20 @@ Also (maybe):
 - Set the variables loading policy --> Synchronously
 
 https://codehunter.cc/a/python-3.x/debugger-times-out-at-collecting-data
+
+
+
+What I need for the main loop:
+
+iteration id
+model
+criterion
+dataloader_train
+dataloader_valid
+config
+writer
+
+timer
+loss_train
+loss_valid
+metrics_valid
