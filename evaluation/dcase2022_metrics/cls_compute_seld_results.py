@@ -73,7 +73,9 @@ class ComputeSELDResults(object):
             # Load predicted output format file
             pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_files_path, pred_file))
             if self._use_polar_format:
-                pred_dict = self._feat_cls.convert_output_format_cartesian_to_polar(pred_dict)
+                # TODO, UPDATE 12.06.2022, I am skipping this as my files are in spherical coordinates already
+                pred_dict = pred_dict
+                #pred_dict = self._feat_cls.convert_output_format_cartesian_to_polar(pred_dict)
             pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
 
             # Calculated scores

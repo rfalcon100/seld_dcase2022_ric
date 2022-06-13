@@ -18,6 +18,7 @@ from utils import validate_audio
 # https://discuss.pytorch.org/t/example-for-torch-utils-data-iterabledataset/101175/13
 # https://github.com/pytorch/pytorch/issues/13246#issuecomment-905703662
 
+# https://discuss.pytorch.org/t/implementing-an-infinite-loop-dataset-dataloader-combo/35567/4
 
 def _read_audio(fname: str, directory_root: str, resampler: Union[torch.nn.Sequential, None], trim_seconds: int = -1) -> Tuple[torch.Tensor, int]:
     ''' trim_seconds = to limit how many seconds to load '''
@@ -196,7 +197,7 @@ def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_aud
     if trim_wavs > 0:
         star_min_sec, start_max_sec = 2, 2 + trim_wavs  # Hardcoded start at 2 seconds
     else:
-        star_min_sec, start_max_sec = 0, clip_length_seconds
+        star_min_sec, start_max_sec = 0, math.floor(clip_length_seconds - chunk_size_audio/fs)
     start_sec = np.round(np.random.randint(star_min_sec,
                                            min((audio.shape[-1] - chunk_size_audio / 2) / fs, start_max_sec),
                                            1))
@@ -204,7 +205,6 @@ def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_aud
     sliced_audio = audio[:, start_index[0]: start_index[0] + round(chunk_size_audio)]
     label = _get_labels(time_array, start_sec, fs, chunk_size_audio=chunk_size_audio,
                         rotation_pattern=None, multi_track=multi_track, num_classes=num_classes)
-
     return sliced_audio, label
 
 
@@ -343,6 +343,7 @@ class DCASE_SELD_Dataset(Dataset):
         elif self.chunk_mode == 'full':
             label = _get_labels(time_array, start_sec=0, fs=fs, chunk_size_audio=audio.shape[-1], rotation_pattern=None,
                                 multi_track=self.multi_track, num_classes=self.num_classes)
+
         if self.return_fname:
             return audio, torch.from_numpy(label.astype(np.float32)), fname
         else:
@@ -581,7 +582,7 @@ if __name__ == '__main__':
     seed_everything(1234, mode='balanced')
     test_validation_histograms()
     test_dataset_train_iteration()  # OK, I am happy
-    test_validation_clean()
+    test_validation_clean()  # seems ok, except when using overlaps
     print('End of test')
 
 

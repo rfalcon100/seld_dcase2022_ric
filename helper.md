@@ -15,6 +15,7 @@ Command to find the fnames of all wavs.
 
 ```bash
 find ./data_dcase2022_sim/foa -type f > data_dcase2022_sim/list_dataset/dcase2022_sim_all.txt
+find ./data_dcase2022_sim/foa/dev-train -type f > data_dcase2022_sim/list_dataset/dcase2022_sim_all.txt
 find ./data_dcase2022/foa_dev/*train* -type f > data_dcase2022/list_dataset/dcase2022_devtrain_all.txt
 find ./data_dcase2022/foa_dev/*test* -type f > data_dcase2022/list_dataset/dcase2022_devtest_all.txt
 ```
@@ -24,6 +25,8 @@ find ./data_dcase2022/foa_dev/*test* -type f > data_dcase2022/list_dataset/dcase
 ```
 dcase2022_devtest_all.txt  
 dcase2022_devtrain_all.txt
+dcase2022_sim_debug.txt
+dcase2021t3_foa_overfit.txt
 ```
 
 

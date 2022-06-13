@@ -45,7 +45,7 @@ def determine_similar_location(sed_pred0, sed_pred1, doa_pred0, doa_pred1, class
     else:
         return 0
 
-def write_output_format_file(_output_format_file, _output_format_dict):
+def write_output_format_file(_output_format_file, _output_format_dict, use_cartesian=True):
     """
     Writes DCASE output format csv file, given output format dictionary
 
@@ -57,14 +57,18 @@ def write_output_format_file(_output_format_file, _output_format_dict):
     # _fid.write('{},{},{},{}\n'.format('frame number with 20ms hop (int)', 'class index (int)', 'azimuth angle (int)', 'elevation angle (int)'))
     for _frame_ind in _output_format_dict.keys():
         for _value in _output_format_dict[_frame_ind]:
-            # Write Cartesian format output. Since baseline does not estimate track count we use a fixed value.
-            _fid.write('{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3])))
+            if use_cartesian:
+                # Write Cartesian format output. Since baseline does not estimate track count we use a fixed value.
+                _fid.write('{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3])))
+            else:
+                _fid.write(
+                    '{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2])))
     _fid.close()
 
 def all_seld_eval(args, directory_root, fnames, pred_directory, result_path=None):
     fpaths = [os.path.join(directory_root, x) for x in fnames]
     fpaths = [os.path.dirname(x.replace('./', '')) for x in fpaths]
-    fpaths = [os.path.dirname(x.replace("foa", "metadata").replace("mic", "metadata"))for x in fpaths]
+    fpaths = [os.path.dirname(x.replace("foa", "metadata").replace("mic", "metadata")) for x in fpaths]
     ref_desc_files = fpaths[0]
     pred_output_format_files = pred_directory
 

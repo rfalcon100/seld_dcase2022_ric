@@ -248,6 +248,11 @@ def unit_vec2sph(angle_x: Union[torch.Tensor, float],
 
     return azimuth, elevation
 
+def cart2sph(x, y, z):
+    azi = np.arctan2(y, x) / np.pi * 180
+    ele = np.arctan2(z, np.sqrt(x ** 2 + y ** 2)) / np.pi * 180
+
+    return azi, ele
 
 def rms(x: torch.Tensor):
     """Computes th RMS (root-mean-squared) for each channel in the signal tensor, in dB.

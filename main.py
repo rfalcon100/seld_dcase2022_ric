@@ -18,6 +18,7 @@ from dataset.dcase_dataset import DCASE_SELD_Dataset, InfiniteDataLoader, _get_p
 from evaluation.dcase2022_metrics import cls_compute_seld_results
 from evaluation.evaluation_dcase2022 import write_output_format_file, get_accdoa_labels, get_multi_accdoa_labels, determine_similar_location, all_seld_eval
 from solver import Solver
+from feature import my_feature
 #from parameters import get_parameters
 import utils
 import plots
@@ -29,24 +30,24 @@ def get_parameters():
         'exp_name': 'debug',
         'seed_mode': 'balanced',
         'mode': 'train',
-        'num_iters': 10000,
-        'batch_size': 2,
+        'num_iters': 1000,
+        'batch_size': 1,
         'num_workers': 5,
         'print_every': 50,
-        'logging_interval': 500,
+        'logging_interval': 100,
         'lr': 1e-4,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
-        'lr_min': 1e-7,
+        'lr_min': 1e-4,  # should be 1e-7 when using scheduler
         'model': 'crnn10',
         'model_normalization': 'batchnorm',
         'model_loss_fn': 'mse',
-        'input_shape': [4,96,128],
+        'input_shape': [7,96,128],
         'output_shape': [3,12,128],
         'logging_dir': './logging',
-        'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-        'dataset_list_train': 'dcase2022_devtrain_debug.txt',
-        'dataset_list_valid': 'dcase2022_devtrain_debug.txt',
+        'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3',
+        'dataset_list_train': 'dcase2021t3_foa_overfit.txt',
+        'dataset_list_valid': 'dcase2021t3_foa_overfit.txt',
         'dataset_trim_wavs': -1,
         'dataset_chunk_size': int(24000 * 1.27),
         'dataset_chunk_mode': 'random',
@@ -158,119 +159,116 @@ def main():
                                          hop_length=240),
         torchaudio.transforms.AmplitudeToDB()).to(device)
 
+    spectrogram_transform = my_feature().to(device)  # mag STFT with intensity vectors
+
     # Initial loss:
     x, target = dataloader_train.dataset[0]
     x, target = spectrogram_transform(x.unsqueeze(0).to(device)), target.to(device)
     solver.predictor.eval()
     out = solver.predictor(x)
-    loss = solver.loss_fns[solver.loss_names[0]](out, target)
+    loss = solver.loss_fns[solver.loss_names[0]](out, target[None, ...])
     print('Initial loss = {:.6f}'.format(loss.item()))
 
     # Monitoring variables
-    #timer = None
-    loss_train, loss_valid, metrics_valid = 0, 0, None
-    curr_validation_step, num_validation_epcohs = 0, math.floor(config.num_iters / config.logging_interval)
-
-
+    train_loss, val_loss, seld_metrics = 0, 0, None
+    start_time = time.time()
 
     if config.mode == 'train':
         print('>>>>>>>> Training START  <<<<<<<<<<<<')
-        start_time = time.time()
+
         iter_idx = 0
-        for curr_validation_step in range(num_validation_epcohs):
-            iter_idx, train_loss = train_iteration(config, dataloader_train=dataloader_train, iter_idx=iter_idx,
-                                                   device=device, features_transform=spectrogram_transform,
-                                                   solver=solver, writer=writer)
-            seld_metrics, val_loss = eval_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
-                                                    device=device, features_transform=spectrogram_transform,
-                                                    solver=solver, writer=writer,
-                                                    dcase_output_folder=config['directory_output_results'])
+        for data in islice(dataloader_train, config.num_iters):
+            start_step_time = time.time()
+            train_loss = train_iteration(config, data, iter_idx=iter_idx, start_step_time=start_step_time,
+                                         device=device, features_transform=spectrogram_transform,
+                                         solver=solver, writer=writer)
+
+            if iter_idx % config.logging_interval == 0 and iter_idx > 0:
+                seld_metrics, val_loss = eval_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
+                                                        device=device, features_transform=spectrogram_transform,
+                                                        solver=solver, writer=writer,
+                                                        dcase_output_folder=config['directory_output_results'])
+                print(
+                    'iteration: {}/{}, time: {:0.2f}, '
+                    'train_loss: {:0.4f}, val_loss: {:0.4f}, '
+                    'ER/F/LE/LR/SELD: {}, '.format(
+                        iter_idx, config.num_iters, curr_time,
+                        train_loss, val_loss,
+                        '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),
+                    ))
+
             # Schedulers
-            solver.lr_step(val_loss, step=iter_idx)  # Scheduler  TODO this wrong
+            solver.lr_step(val_loss, step=iter_idx)  # Scheduler
 
             curr_time = time.time() - start_time
-            # Print stats
-            print(
-                'iteration: {}/{}, time: {:0.2f}, '
-                'train_loss: {:0.4f}, val_loss: {:0.4f}, '
-                'ER/F/LE/LR/SELD: {}, '.format(
-                    iter_idx, config.num_iters, curr_time,
-                    train_loss, val_loss,
-                    '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),
-                ))
-
-            if iter_idx >= config.num_iters:
-                break
+            iter_idx += 1
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
     elif config.mode == 'eval':
         raise NotImplementedError
 
 
-def train_iteration(config, dataloader_train, iter_idx, device, features_transform: nn.Sequential, solver, writer):
-    # Training loop
-    for (x, target) in islice(dataloader_train, config.logging_interval):
-        iter_idx += 1
-        x, target = x.to(device), target.to(device)
-        x = features_transform(x)
-        solver.set_input(x, target)
-        solver.train_step()
+def train_iteration(config, data, iter_idx, start_step_time, device, features_transform: nn.Sequential, solver, writer):
+    # Training iteration
+    x, target = data
+    x, target = x.to(device), target.to(device)
+    x = features_transform(x)
+    solver.set_input(x, target)
+    solver.train_step()
 
-        # Output training stats
-        rec_loss = solver.loss_values['rec']
+    # Output training stats
+    train_loss = solver.loss_values['rec']
 
+    # Logging and printing
+    if writer is not None:
+        step = iter_idx
+        writer.add_scalar('losses/train', train_loss.item(), step)
 
+        # Learning rates
+        lr = solver.get_lrs()
+        writer.add_scalar('Lr/gen', lr, step)
 
-        # Logging and printing
-        if writer is not None:
-            step = iter_idx
-            writer.add_scalar('losses/train', rec_loss.item(), step)
+    if iter_idx % config.print_every == 0:
+        step_time = time.time() - start_step_time
+        print('[%d/%d] iters \t Loss_rec: %.4f \t\t Step time: %0.2f' % (iter_idx, config.num_iters, train_loss.item(), step_time))
 
-            # Learning rates
-            lr = solver.get_lrs()
-            writer.add_scalar('Lr/gen', lr, step)
+    # Log an example of the predicted labels
+    if (iter_idx % config.logging_interval == 0) and writer is not None:
+        fixed_output = solver.get_fixed_output()
+        fixed_label = solver.get_fixed_label()
+        if fixed_output is not None:
+            fixed_output = fixed_output[0, ...]
+            fixed_label = fixed_label[0, ...]
+            fixed_error = np.abs(fixed_output - fixed_label)
 
-        if iter_idx % config.print_every == 0:
-            print('[%d/%d] iters \t Loss_rec: %.4f' % (iter_idx, config.num_iters, rec_loss.item()))
+            # Transform to spherical coordinates
+            fixed_output_sph = np.zeros_like(fixed_output)
+            fixed_label_sph = np.zeros_like(fixed_label)
+            fixed_error_sph = np.zeros_like(fixed_error)
+            for cc in range(fixed_output_sph.shape[1]):
+                tmp = utils.vecs2dirs(fixed_output[:, cc, :].squeeze().transpose(1, 0), include_r=True,
+                                use_elevation=True)
+                fixed_output_sph[:, cc, ::] = tmp.transpose(1, 0)
+                tmp = utils.vecs2dirs(fixed_label[:, cc, :].squeeze().transpose(1, 0), include_r=True,
+                                use_elevation=True)
+                fixed_label_sph[:, cc, ::] = tmp.transpose(1, 0)
+                tmp = utils.vecs2dirs(fixed_error[:, cc, :].squeeze().transpose(1, 0), include_r=True,
+                                use_elevation=True)
+                fixed_error_sph[:, cc, ::] = tmp.transpose(1, 0)
 
-        # Log an example of the predicted labels
-        if (iter_idx % config.logging_interval == 0) and writer is not None:
-            fixed_output = solver.get_fixed_output()
-            fixed_label = solver.get_fixed_label()
-            if fixed_output is not None:
-                fixed_output = fixed_output[0, ...]
-                fixed_label = fixed_label[0, ...]
-                fixed_error = np.abs(fixed_output - fixed_label)
+            # Plot
+            fig = plots.plot_labels(fixed_output_sph, savefig=False, plot_cartesian=False)
+            writer.add_figure('fixed_input/train', fig, iter_idx)
+            if not iter_idx > 0:
+                fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False)
+            writer.add_figure('fixed_label/train', fig, None)
+            fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
+            writer.add_figure('fixed_error/train', fig, iter_idx)
 
-                # Transform to spherical coordinates
-                fixed_output_sph = np.zeros_like(fixed_output)
-                fixed_label_sph = np.zeros_like(fixed_label)
-                fixed_error_sph = np.zeros_like(fixed_error)
-                for cc in range(fixed_output_sph.shape[1]):
-                    tmp = utils.vecs2dirs(fixed_output[:, cc, :].squeeze().transpose(1, 0), include_r=True,
-                                    use_elevation=True)
-                    fixed_output_sph[:, cc, ::] = tmp.transpose(1, 0)
-                    tmp = utils.vecs2dirs(fixed_label[:, cc, :].squeeze().transpose(1, 0), include_r=True,
-                                    use_elevation=True)
-                    fixed_label_sph[:, cc, ::] = tmp.transpose(1, 0)
-                    tmp = utils.vecs2dirs(fixed_error[:, cc, :].squeeze().transpose(1, 0), include_r=True,
-                                    use_elevation=True)
-                    fixed_error_sph[:, cc, ::] = tmp.transpose(1, 0)
-
-                # Plot
-                fig = plots.plot_labels(fixed_output_sph, savefig=False, plot_cartesian=False)
-                writer.add_figure('fixed_input/train', fig, iter_idx)
-                if not iter_idx > 0:
-                    fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False)
-                writer.add_figure('fixed_label/train', fig, None)
-                fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
-                writer.add_figure('fixed_error/train', fig, iter_idx)
-
-    return iter_idx, rec_loss.item()
+    return train_loss.item()
 
 
 def eval_iteration(config, dataset, iter_idx, solver, features_transform, dcase_output_folder, device, writer):
     # Adapted from the official baseline
-
     nb_test_batches, test_loss = 0, 0.
     model = solver.predictor
     model.eval()
@@ -286,6 +284,7 @@ def eval_iteration(config, dataset, iter_idx, solver, features_transform, dcase_
             print(f'Audio shape: {audio.shape}')
             print(f'Target shape: {target.shape}')
 
+            warnings.warn('WARNING: Hard coded chunk size for evaluation')
             audio_padding, labels_padding = _get_padders(chunk_size_seconds=1.27,
                                                          duration_seconds=math.floor(duration),
                                                          overlap=1,
@@ -313,7 +312,20 @@ def eval_iteration(config, dataset, iter_idx, solver, features_transform, dcase_
 
             # Concatenate chunks across timesteps into final predictions
             output = torch.concat(full_output, dim=-1)
+
+            # Apply detection threshold based on vector norm
+            threshold = 0.5
+            norms = torch.linalg.vector_norm(output, ord=2, dim=-3, keepdims=True)
+            norms = (norms < threshold).repeat(1, output.shape[-3], 1, 1)
+            output[norms] = 0.0
             loss = torch.tensor([x.item() for x in full_loss]).mean()
+
+            # Useful fo debug:
+            #output.detach().cpu().numpy()[0, 0]
+            #target.detach().cpu().numpy()[0]
+
+            # Downsample over frames:
+            output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
 
             # I think the baseline code needs this in [batch, frames, classes*coords]
             output = output.permute([0, 3, 1, 2])
@@ -435,12 +447,16 @@ def eval_iteration(config, dataset, iter_idx, solver, features_transform, dcase_
                         if sed_pred[frame_cnt][class_cnt] > 0.5:
                             if frame_cnt not in output_dict:
                                 output_dict[frame_cnt] = []
-                            output_dict[frame_cnt].append([class_cnt, doa_pred[frame_cnt][class_cnt],
-                                                           doa_pred[frame_cnt][
-                                                               class_cnt + config['unique_classes']],
-                                                           doa_pred[frame_cnt][
-                                                               class_cnt + 2 * config['unique_classes']]])
-            write_output_format_file(output_file, output_dict)
+                            tmp_azi, tmp_ele = utils.cart2sph(doa_pred[frame_cnt][class_cnt],
+                                                           doa_pred[frame_cnt][class_cnt + config['unique_classes']],
+                                                           doa_pred[frame_cnt][class_cnt + 2 * config['unique_classes']])
+                            output_dict[frame_cnt].append([class_cnt, tmp_azi, tmp_ele])
+                            #output_dict[frame_cnt].append([class_cnt, doa_pred[frame_cnt][class_cnt],
+                            #                               doa_pred[frame_cnt][
+                            #                                   class_cnt + config['unique_classes']],
+                            #                               doa_pred[frame_cnt][
+                            #                                   class_cnt + 2 * config['unique_classes']]])
+            write_output_format_file(output_file, output_dict, use_cartesian=False)
 
             test_loss += loss.item()
             nb_test_batches += 1

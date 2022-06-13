@@ -71,6 +71,33 @@ def plot_waveform(waveform: torch.Tensor, sample_rate: int, title: str = "Wavefo
     plt.show()
 
 
+def plot_specgram_features(features, sample_rate, title="Spectrograms", xlim=None):
+    features = features.numpy()
+    assert len(features.shape) == 3, 'ERROR, plotting spectograms does not support batches.'
+
+    #num_channels, num_frames = feature.shape
+    #time_axis = torch.arange(0, num_frames) / sample_rate
+
+    fig, ax = plt.subplots(features.shape[-3], 1, figsize=(12,12))
+    for i in range(features.shape[-3]):
+        aa = ax[i].matshow(features[i, :, :], aspect='auto', origin='lower', cmap='magma')
+        fig.colorbar(aa, ax=ax[i], location='right')
+    plt.tight_layout()
+    fig.suptitle(title)
+    plt.show()
+    if False:
+        if num_channels == 1:
+            axes = [axes]
+        for c in range(num_channels):
+            axes[c].specgram(waveform[c], Fs=sample_rate)
+            if num_channels > 1:
+                axes[c].set_ylabel(f'Channel {c+1}')
+            if xlim:
+                axes[c].set_xlim(xlim)
+        figure.suptitle(title)
+        plt.show(block=False)
+
+
 def plot_3dpoints(points: torch.Tensor, title: str = 'Grid of points',
                   xlim: List = None, ylim: List = None, zlim: List = None, fig=None):
     """Plots a 3d scatter of poits. USeful to look at sampling of a sphere or similar."""
