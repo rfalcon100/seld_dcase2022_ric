@@ -254,3 +254,56 @@ def init_gru(rnn):
 
 
 
+def test_CRNN10():
+    """ Quick test for the CRNN10 model"""
+    import torch.optim as optim
+    from torch.utils.data import DataLoader
+    from torchsummary import summary
+
+    learning_rate = 0.001
+    datapoints, batch, epochs = 1, 1, 10000
+    input_shape = [1, 4, 257, 128]
+    output_shape = [1, 3, 12, 128]
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    x = torch.randn(input_shape).to(device)
+    y = torch.randn((1, 3, 12, 8))
+    y = torch.repeat_interleave(y, 16, dim=-1).to(device)
+    data = torch.utils.data.TensorDataset(x, y)
+    dataloader = DataLoader(data, batch_size=batch)
+    model = CRNN10(class_num=output_shape[-2],
+                   out_channels=output_shape[-3],
+                   in_channels=input_shape[-3],
+                   multi_track=False).to(device)
+
+    loss_f = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    summary(model, input_size=tuple(input_shape[-3:]))
+
+    model.train()
+    for epoch in range(epochs):
+        for ctr, (x, target) in enumerate(dataloader):
+            #x, target = x.to(device), target.to(device)
+            model.zero_grad()
+            out = model(x)
+
+            loss = loss_f(out, target)
+            loss.backward()
+            optimizer.step()
+            if epoch % 50 == 0:
+                print('Epoch: {} / {} , loss {:.8f}'.format(epoch, epochs, loss.item()))
+                #print('outputs : {}'.format(out.detach().cpu().numpy()))
+
+    model.eval()
+    out = model(x)
+    print('')
+    print('outputs : {}'.format(out.detach().cpu().numpy()))
+    a = out.detach().cpu().numpy()
+    b = target.detach().cpu().numpy()
+    print('target : {}'.format(b))
+    assert np.allclose(a, b, atol=1.e-1), 'Wrong outputs'
+
+    print('Unit test completed.')
+
+if __name__ == '__main__':
+    test_CRNN10()
