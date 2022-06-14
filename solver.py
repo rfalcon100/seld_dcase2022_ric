@@ -12,7 +12,7 @@ from models.losses import MSELoss_ADPIT
 
 
 class Solver(object):
-    def __init__(self, config, tensorboard_writer=None):
+    def __init__(self, config, tensorboard_writer=None, model_checkpoint=None):
 
         # Data and configuration parameters
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -23,6 +23,7 @@ class Solver(object):
         print(f'Device set to = {self.device}')
         self.config = config
         self.writer = tensorboard_writer
+        self.model_checkpoint = model_checkpoint
         self.data_gen = {
             'x': None,
             'y': None,
@@ -44,6 +45,10 @@ class Solver(object):
 
         print(f'Input predictor = {self.config.input_shape}')
         summary(self.predictor, input_size=tuple(self.config.input_shape))
+
+        if self.model_checkpoint is not None:
+            print("Loading model state from {}".format(self.model_checkpoint))
+            self.predictor.load_state_dict(torch.load(self.model_checkpoint, map_location=self.device))
 
     def build_predictor(self):
         predictor = CRNN10(class_num=self.config.output_shape[1],

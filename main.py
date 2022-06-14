@@ -28,27 +28,27 @@ import plots
 def get_parameters():
     """ Deprecated. We now use the parameters.py"""
     params = {
-        'exp_name': 'debug',  #baseline_dcase2021
+        'exp_name': 'baseline_dcase2022',  #baseline_dcase2021
         'seed_mode': 'balanced',
         'mode': 'train',
-        'num_iters': 10000,  # debug 10000
-        'batch_size': 1,     # debug 1
+        'num_iters': 100000,  # debug 10000
+        'batch_size': 24,     # debug 1
         'num_workers': 5,
-        'print_every': 50,
-        'logging_interval': 500,  # debug 100 or 50
+        'print_every': 100,
+        'logging_interval': 10000,  # debug 100 or 50
         'lr': 1e-4,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
-        'lr_min': 1e-4,  # should be 1e-7 when using scheduler
+        'lr_min': 1e-7,  # should be 1e-7 when using scheduler
         'model': 'crnn10',
         'model_normalization': 'batchnorm',
         'model_loss_fn': 'mse',
         'input_shape': [7,96,128],
         'output_shape': [3,12,128],
         'logging_dir': './logging',
-        'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3',
-        'dataset_list_train': 'dcase2021t3_foa_overfit.txt',
-        'dataset_list_valid': 'dcase2021t3_foa_overfit.txt',
+        'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+        'dataset_list_train': 'dcase2022_devtrain_all.txt',
+        'dataset_list_valid': 'dcase2022_devtest_all.txt',
         'dataset_trim_wavs': -1,
         'dataset_chunk_size': int(24000 * 1.27),
         'dataset_chunk_mode': 'random',
@@ -97,7 +97,7 @@ def get_parameters():
         shutil.rmtree(params['logging_dir'])
     if not os.path.exists(params['logging_dir']):
         os.mkdir(params['logging_dir'])
-    with open(os.path.join(params['logging_dir'] , 'params.yaml'), 'w') as f:
+    with open(os.path.join(params['logging_dir'], 'params.yaml'), 'w') as f:
         yaml.dump(params, f, default_flow_style=None)
     if not os.path.exists(params['directory_output_results']):
         os.mkdir(params['directory_output_results'])
@@ -281,6 +281,9 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             writer.add_figure('fixed_label/train', fig, None)
             fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
             writer.add_figure('fixed_error/train', fig, iter_idx)
+
+    if (iter_idx % config.logging_interval == 0) and iter_idx > 0:
+        torch.save(solver.predictor.state_dict(), os.path.join(config.logging_dir, f'model_step_{iter_idx}.pth'))
 
     return train_loss.item()
 
