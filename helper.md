@@ -10,6 +10,15 @@
 ````
 
 
+### From Triton
+
+````bash
+/scratch/work/falconr1/sony/data_dcase2022
+/scratch/work/falconr1/sony/data_dcase2021_task3
+/scratch/work/falconr1/sony/data_dcase2022_sim
+````
+
+
 # List for files:
 Command to find the fnames of all wavs.
 

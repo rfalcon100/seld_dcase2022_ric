@@ -13,6 +13,7 @@ import time
 from easydict import EasyDict
 from datetime import datetime
 from itertools import islice
+from typing import List
 
 from dataset.dcase_dataset import DCASE_SELD_Dataset, InfiniteDataLoader, _get_padders
 from evaluation.dcase2022_metrics import cls_compute_seld_results
@@ -27,14 +28,14 @@ import plots
 def get_parameters():
     """ Deprecated. We now use the parameters.py"""
     params = {
-        'exp_name': 'debug',
+        'exp_name': 'debug',  #baseline_dcase2021
         'seed_mode': 'balanced',
         'mode': 'train',
-        'num_iters': 1000,
-        'batch_size': 1,
+        'num_iters': 10000,  # debug 10000
+        'batch_size': 1,     # debug 1
         'num_workers': 5,
         'print_every': 50,
-        'logging_interval': 100,
+        'logging_interval': 500,  # debug 100 or 50
         'lr': 1e-4,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
@@ -177,9 +178,9 @@ def main():
         print('>>>>>>>> Training START  <<<<<<<<<<<<')
 
         iter_idx = 0
-        for data in islice(dataloader_train, config.num_iters):
+        for data in islice(dataloader_train, config.num_iters + 1):
             start_step_time = time.time()
-            train_loss = train_iteration(config, data, iter_idx=iter_idx, start_step_time=start_step_time,
+            train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
                                          device=device, features_transform=spectrogram_transform,
                                          solver=solver, writer=writer)
 
@@ -198,16 +199,27 @@ def main():
                     ))
 
             # Schedulers
-            solver.lr_step(val_loss, step=iter_idx)  # Scheduler
+            solver.lr_step(seld_metrics[4] if seld_metrics is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
 
             curr_time = time.time() - start_time
             iter_idx += 1
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
+
+        print('Classwise results on validation data')
+        print('Class\tER\tF\tLE\tLR\tSELD_score')
+        seld_metrics_class_wise = seld_metrics[5]
+        for cls_cnt in range(config['unique_classes']):
+            print('{}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt, seld_metrics_class_wise[0][cls_cnt],
+                                                                           seld_metrics_class_wise[1][cls_cnt],
+                                                                           seld_metrics_class_wise[2][cls_cnt],
+                                                                           seld_metrics_class_wise[3][cls_cnt],
+                                                                           seld_metrics_class_wise[4][cls_cnt]))
+
     elif config.mode == 'eval':
         raise NotImplementedError
 
 
-def train_iteration(config, data, iter_idx, start_step_time, device, features_transform: nn.Sequential, solver, writer):
+def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: nn.Sequential, solver, writer):
     # Training iteration
     x, target = data
     x, target = x.to(device), target.to(device)
@@ -215,21 +227,31 @@ def train_iteration(config, data, iter_idx, start_step_time, device, features_tr
     solver.set_input(x, target)
     solver.train_step()
 
+    # Useful debugging
+    #plots.plot_labels_cross_sections(target[0].detach().cpu(), n_classes=list(range(target[0].shape[-2])), plot_cartesian=True)
+    #plots.plot_labels(target[0].detach().cpu(), n_classes=list(range(target[0].shape[-2])), savefig=False, plot_cartesian=True)
+
     # Output training stats
     train_loss = solver.loss_values['rec']
 
     # Logging and printing
     if writer is not None:
         step = iter_idx
-        writer.add_scalar('losses/train', train_loss.item(), step)
+        writer.add_scalar('Losses/train', train_loss.item(), step)
 
         # Learning rates
         lr = solver.get_lrs()
         writer.add_scalar('Lr/gen', lr, step)
 
+        # Grad norm
+        grad_norm_model = solver.get_grad_norm()
+        writer.add_scalar('grad_norm/disc', grad_norm_model, step)
+
     if iter_idx % config.print_every == 0:
-        step_time = time.time() - start_step_time
-        print('[%d/%d] iters \t Loss_rec: %.4f \t\t Step time: %0.2f' % (iter_idx, config.num_iters, train_loss.item(), step_time))
+        curr_time = time.time() - start_time
+        step_time = time.time() - start_time_step
+        print('[%d/%d] iters \t Loss_rec: %.6f \t\t Step_time: %0.2f  \t\t  Elapsed time: %0.2f'
+              % (iter_idx, config.num_iters, train_loss.item(), step_time, curr_time))
 
     # Log an example of the predicted labels
     if (iter_idx % config.logging_interval == 0) and writer is not None:
@@ -245,21 +267,17 @@ def train_iteration(config, data, iter_idx, start_step_time, device, features_tr
             fixed_label_sph = np.zeros_like(fixed_label)
             fixed_error_sph = np.zeros_like(fixed_error)
             for cc in range(fixed_output_sph.shape[1]):
-                tmp = utils.vecs2dirs(fixed_output[:, cc, :].squeeze().transpose(1, 0), include_r=True,
-                                use_elevation=True)
+                tmp = utils.vecs2dirs(fixed_output[:, cc, :].squeeze().transpose(1, 0), include_r=True, use_elevation=True)
                 fixed_output_sph[:, cc, ::] = tmp.transpose(1, 0)
-                tmp = utils.vecs2dirs(fixed_label[:, cc, :].squeeze().transpose(1, 0), include_r=True,
-                                use_elevation=True)
+                tmp = utils.vecs2dirs(fixed_label[:, cc, :].squeeze().transpose(1, 0), include_r=True, use_elevation=True)
                 fixed_label_sph[:, cc, ::] = tmp.transpose(1, 0)
-                tmp = utils.vecs2dirs(fixed_error[:, cc, :].squeeze().transpose(1, 0), include_r=True,
-                                use_elevation=True)
+                tmp = utils.vecs2dirs(fixed_error[:, cc, :].squeeze().transpose(1, 0), include_r=True, use_elevation=True)
                 fixed_error_sph[:, cc, ::] = tmp.transpose(1, 0)
 
             # Plot
             fig = plots.plot_labels(fixed_output_sph, savefig=False, plot_cartesian=False)
-            writer.add_figure('fixed_input/train', fig, iter_idx)
-            if not iter_idx > 0:
-                fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False)
+            writer.add_figure('fixed_output/train', fig, iter_idx)
+            fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False)
             writer.add_figure('fixed_label/train', fig, None)
             fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
             writer.add_figure('fixed_error/train', fig, iter_idx)
@@ -474,6 +492,58 @@ def eval_iteration(config, dataset, iter_idx, solver, features_transform, dcase_
         writer.add_scalar('Metrics/SELD', all_test_metric[4], iter_idx)
 
     return all_test_metric, test_loss
+
+def debug_plot_helper(target):
+    import plots
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    # Useful debugging
+    plots.plot_labels_cross_sections(target.detach().cpu(), n_classes=list(range(target.shape[-2])), plot_cartesian=True)
+    plots.plot_labels(target.detach().cpu(), n_classes=list(range(target.shape[-2])), savefig=False, plot_cartesian=True)
+
+    plt.figure()
+    plt.show()
+
+
+def count_active_classes(all_labels: List, detection_threshold=0.5):
+    """ Useful function to get the histogram of active classes per frames.
+    Tip: Call it with only one label to get the plot.
+        count_active_classes(all_labels[0:1])
+    """
+    import plots
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas as pd
+
+    if len(all_labels) == 1:
+        plots.plot_labels_cross_sections(all_labels[0], n_classes=list(range(all_labels[0].shape[-2])), plot_cartesian=True)
+        plots.plot_labels(all_labels[0], n_classes=list(range(all_labels[0].shape[-2])), savefig=False, plot_cartesian=True)
+
+    all_count_detections = {}
+    for i in range(len(all_labels)):
+        this_label = all_labels[i]
+        vec_norms = torch.linalg.vector_norm(this_label, ord=2, dim=-3)
+
+        for cls in range(this_label.shape[-2]):
+            mask_detected_events = vec_norms[cls, :] > detection_threshold  # detected events for this class
+            # mask_detected_events = mask_detected_events.repeat(1, 3, 1)
+            tmp_events = this_label[..., cls, mask_detected_events]
+            # detections = tmp_events[mask_detected_events]
+            this_count_detections = mask_detected_events.nonzero(as_tuple=False)
+            if cls in all_count_detections.keys():
+                all_count_detections[cls] += len(this_count_detections)
+            else:
+                all_count_detections[cls] = len(this_count_detections)
+
+    f, ax = plt.subplots(figsize=(10, 15))
+    df = pd.DataFrame(list(all_count_detections.items()))
+    df.columns = ['class_id', 'count']
+    g = sns.barplot(x="class_id", y="count", data=df,
+                    label="class_id", color="b")
+    sns.despine(left=False, bottom=False)
+    #g.set_yscale("log")
+    plt.show()
 
 if __name__ == '__main__':
     main()

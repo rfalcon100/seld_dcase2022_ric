@@ -92,6 +92,24 @@ class GradualWarmupScheduler(_LRScheduler):
         else:
             self.step_ReduceLROnPlateau(metrics, epoch)
 
+def grad_norm(parameters, norm_type=2):
+    '''
+    Returns the total norm of all the gradients in a model.
+    '''
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    parameters = list(filter(lambda p: p.grad is not None, parameters))
+    norm_type = float(norm_type)
+    if norm_type == 'inf':
+        total_norm = max(p.grad.data.abs().max() for p in parameters)
+    else:
+        total_norm = 0
+        for p in parameters:
+            param_norm = p.grad.data.norm(norm_type)
+            total_norm += param_norm.item() ** norm_type
+        total_norm = total_norm ** (1. / norm_type)
+
+    return total_norm
 
 def validate_audio(audio, message=''):
     """ Checks if the audio is valid by:
@@ -117,7 +135,6 @@ def validate_audio(audio, message=''):
     if message != '':
         print('>>>>>>>> ' + message + f'{check}')
     return check
-
 
 def seed_everything(seed=12345, mode='balanced'):
     # ULTIMATE random seeding for either full reproducibility or a balanced reproducibility/performance.
@@ -155,8 +172,6 @@ def seed_everything(seed=12345, mode='balanced'):
 
         # torch.use_deterministic_algorithms(True)
 
-
-
 def get_rotation_matrix(rotation_phi, rotation_theta, rotation_psi) -> torch.Tensor:
     """ Returns a full 3d Rotation matrix, for the given rotation angles phi, thetha, psi
     that are rotations over:
@@ -182,7 +197,6 @@ def get_rotation_matrix(rotation_phi, rotation_theta, rotation_psi) -> torch.Ten
     R = torch.matmul(torch.matmul(roll, pitch), yaw)
     return R
 
-
 def colat2ele(colat: Union[float, torch.Tensor]) -> torch.Tensor:
     """Transforms colatitude to elevation (latitude). In radians.
 
@@ -193,7 +207,6 @@ def colat2ele(colat: Union[float, torch.Tensor]) -> torch.Tensor:
     ele = math.pi / 2 - colat
     return ele
 
-
 def ele2colat(ele: Union[float, torch.Tensor]) -> torch.Tensor:
     """Transforms colatitude to elevation (latitude). In radians.
 
@@ -203,7 +216,6 @@ def ele2colat(ele: Union[float, torch.Tensor]) -> torch.Tensor:
     """
     colat = math.pi / 2 - ele
     return colat
-
 
 def vecs2dirs(vecs, positive_azi=True, include_r=False, use_elevation=False):
     """Helper to convert [x, y, z] to [azi, colat].
@@ -219,7 +231,6 @@ def vecs2dirs(vecs, positive_azi=True, include_r=False, use_elevation=False):
         output = np.c_[azi, colat]
     return output
 
-
 def sph2unit_vec(azimuth: Union[float, torch.Tensor], elevation: Union[float, torch.Tensor]) -> torch.Tensor:
     """ Transforms spherical coordinates into a unit vector .
     Equaiton 2.1 of
@@ -233,7 +244,6 @@ def sph2unit_vec(azimuth: Union[float, torch.Tensor], elevation: Union[float, to
     z = torch.sin(elevation)
 
     return torch.stack([x, y, z], dim=-1)
-
 
 def unit_vec2sph(angle_x: Union[torch.Tensor, float],
                  angle_y: Union[torch.Tensor, float],
@@ -269,7 +279,6 @@ def rms(x: torch.Tensor):
     tmp = t(tmp)
     return tmp
 
-
 def sample_beta(alpha: float = 0.0, beta: float = None, shape=[1]):
     """ Draws a sample from the beta distribution. """
     if beta is None:
@@ -289,7 +298,6 @@ def sample_beta(alpha: float = 0.0, beta: float = None, shape=[1]):
         lambda_var = torch.distributions.bernoulli.Bernoulli(probs=prob).sample(sample_shape=shape)
     return lambda_var
 
-
 def sample_geometric(low=0, high=1, shape=[1]):
     """ Draw a random sample from a geometric distribution between low and high.
     This returns integers.
@@ -304,7 +312,6 @@ def sample_geometric(low=0, high=1, shape=[1]):
     tmp = torch.rand(size=shape)
     sample = torch.round(torch.exp(tmp_low + (tmp_high - tmp_low) * tmp))
     return sample
-
 
 def sample_exponential(low=0, high=1, shape=[1], device='cpu'):
     """ Draw a random sample from an exponential distribution between low and high.
@@ -321,7 +328,6 @@ def sample_exponential(low=0, high=1, shape=[1], device='cpu'):
     sample = torch.exp(tmp_low + (tmp_high - tmp_low) * tmp)
     sample[sample <= eps] = 0
     return sample
-
 
 def test_beta_distributions(sampler='pytorch'):
     if sampler == 'pytorch':
@@ -350,8 +356,6 @@ def test_beta_distributions(sampler='pytorch'):
             ax.set_title(f'a={this_alpha}, b={this_beta}')
     fig.tight_layout()
     plt.show()
-
-
 
 
 if __name__ == '__main__':

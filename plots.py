@@ -73,7 +73,7 @@ def plot_waveform(waveform: torch.Tensor, sample_rate: int, title: str = "Wavefo
 
 def plot_specgram_features(features, sample_rate, title="Spectrograms", xlim=None):
     features = features.numpy()
-    assert len(features.shape) == 3, 'ERROR, plotting spectograms does not support batches.'
+    assert len(features.shape) == 3, 'ERROR, plotting spectrograms does not support batches.'
 
     #num_channels, num_frames = feature.shape
     #time_axis = torch.arange(0, num_frames) / sample_rate
@@ -593,7 +593,7 @@ def plot_labels_cross_sections(labels: Union[torch.Tensor, np.ndarray], n_classe
         ax2.plot(torch.arange(0, labels.shape[-1]), labels_polar[:, 2], color=cmap(jj))
 
     # Plot class activity
-    ax3.imshow(labels.permute([1, 2, 0]), interpolation='nearest', aspect='auto')  # imshow needs [height, width, channels]
+    ax3.imshow(labels.permute([1, 2, 0]), interpolation='nearest', aspect='auto', origin='lower')  # imshow needs [height, width, channels]
 
     # Formatting
     eps = 1e-1

@@ -6,7 +6,7 @@ import torch.optim as optim
 import numpy as np
 from torchsummary import summary
 
-from utils import GradualWarmupScheduler
+from utils import GradualWarmupScheduler, grad_norm
 from models.crnn import CRNN10, CRNN
 from models.losses import MSELoss_ADPIT
 
@@ -106,6 +106,11 @@ class Solver(object):
         if self._fixed_label is not None:
             out = self._fixed_label.detach().cpu()
             return out
+
+    def get_grad_norm(self):
+        """ Returns the gradient norms for the generator (SELD net) and discriminator. """
+        grad_norm_model = grad_norm(self.predictor.parameters())
+        return grad_norm_model
 
     def forward(self):
         self.data_gen['y_hat'] = self.predictor(self.data_gen['x'])

@@ -433,7 +433,6 @@ def _get_padders(chunk_size_seconds:float = 1.27,
                      'hop_size': labels_step_size}
     return audio_padding, labels_padding
 
-
 def test_validation_clean():
     # Here I am testing how to do the validation
     # The idea is that I want to iterate the full wavs, to get the predictions
@@ -507,7 +506,6 @@ def test_validation_clean():
 
     # breaks in wav 43 or 42 with overlap
 
-
 def test_validation_histograms():
     # Here I am testing how to do the validation
     # The idea is that I want to iterate the full wavs, to get the predictions
@@ -515,6 +513,9 @@ def test_validation_histograms():
     # Then we split into chunks manually
     # And iterate over wavs, using a dataloader for each one
     # Other useful function, torch.chunks, torch.split
+
+    # Update 15.06.2022
+    # This is very useful to analyze tbe labels too.
 
     batch_size = 32  # This depends on GPU memory
     dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
@@ -539,6 +540,7 @@ def test_validation_histograms():
 
     # Analysis of labels
     count_active_classes(all_labels)
+    count_active_classes(all_labels[0:1])
 
 def count_active_classes(all_labels: List, detection_threshold=0.5):
     """ Useful function to get the histogram of active classes per frames.
@@ -550,7 +552,8 @@ def count_active_classes(all_labels: List, detection_threshold=0.5):
     import seaborn as sns
 
     if len(all_labels) == 1:
-        plots.plot_labels_cross_sections(all_labels[0], plot_cartesian=True)
+        plots.plot_labels_cross_sections(all_labels[0], n_classes=list(range(all_labels[0].shape[-2])), plot_cartesian=True)
+        plots.plot_labels(all_labels[0], n_classes=list(range(all_labels[0].shape[-2])), savefig=False, plot_cartesian=True)
 
     all_count_detections = {}
     for i in range(len(all_labels)):
