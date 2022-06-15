@@ -20,22 +20,25 @@ from evaluation.dcase2022_metrics import cls_compute_seld_results
 from evaluation.evaluation_dcase2022 import write_output_format_file, get_accdoa_labels, get_multi_accdoa_labels, determine_similar_location, all_seld_eval
 from solver import Solver
 from feature import my_feature
-#from parameters import get_parameters
+
+import augmentation.spatial_mixup as spm
+from parameters import get_parameters
 import utils
 import plots
 
 
-def get_parameters():
+def get_parameters_OLD():
     """ Deprecated. We now use the parameters.py"""
+    raise NotImplementedError
     params = {
-        'exp_name': 'baseline_dcase2022',  #baseline_dcase2021
+        'exp_name': 'debug',  #baseline_dcase2021
         'seed_mode': 'balanced',
         'mode': 'train',
-        'num_iters': 100000,  # debug 10000
-        'batch_size': 24,     # debug 1
-        'num_workers': 5,
-        'print_every': 100,
-        'logging_interval': 10000,  # debug 100 or 50
+        'num_iters': 10000,  # debug 10000
+        'batch_size': 64,     # debug 1
+        'num_workers': 1,
+        'print_every': 50,
+        'logging_interval': 500,  # debug 100 or 50
         'lr': 1e-4,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
@@ -43,14 +46,14 @@ def get_parameters():
         'model': 'crnn10',
         'model_normalization': 'batchnorm',
         'model_loss_fn': 'mse',
-        'input_shape': [7,96,128],
-        'output_shape': [3,12,128],
+        'input_shape': [7,96,256],
+        'output_shape': [3,12,256],
         'logging_dir': './logging',
         'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
         'dataset_list_train': 'dcase2022_devtrain_all.txt',
-        'dataset_list_valid': 'dcase2022_devtest_all.txt',
-        'dataset_trim_wavs': -1,
-        'dataset_chunk_size': int(24000 * 1.27),
+        'dataset_list_valid': 'dcase2022_devtrain_all.txt',
+        'dataset_trim_wavs': 30,
+        'dataset_chunk_size': math.ceil(24000 * 1.27),
         'dataset_chunk_mode': 'random',
         'dataset_multi_track': False,
         'thresh_unify': 15,
@@ -130,6 +133,39 @@ def get_dataset(config):
 
     return dataloader_train, dataset_valid
 
+def get_augmentation(device='cpu'):
+    params = {'t_design_degree': 20,
+              'G_type': 'identity',
+              'use_slepian': False,
+              'order_output': 1,
+              'order_input': 1,
+              'backend': 'basic',
+              'w_pattern': 'hypercardioid',
+              'fs': 48000}
+
+    rotation_params = {'rot_phi': 0.0,
+                       'rot_theta': 0.0,
+                       'rot_psi': 1.5 * np.pi / 2}
+    rotation_params = {'rot_phi': 0.0,
+                       'rot_theta': 0.0,
+                       'rot_psi': np.pi / 4}
+    rotation_angles = [rotation_params['rot_phi'], rotation_params['rot_theta'], rotation_params['rot_psi']]
+
+    rotation = spm.SphericalRotation(rotation_angles_rad=rotation_angles,
+                                     t_design_degree=params['t_design_degree'],
+                                     order_output=params['order_output'],
+                                     order_input=params['order_input'])
+    # plots.plot_transform_matrix(rotation.T_mat, xlabel='Input ACN', ylabel='Output ACN')
+    transform = spm.DirectionalLoudness(t_design_degree=params['t_design_degree'],
+                                        G_type=params['G_type'],
+                                        use_slepian=params['use_slepian'],
+                                        order_output=params['order_output'],
+                                        order_input=params['order_input'],
+                                        backend=params['backend'],
+                                        w_pattern=params['w_pattern'],
+                                        device=device)
+
+    return transform
 
 def main():
     # Get config
@@ -160,7 +196,11 @@ def main():
                                          hop_length=240),
         torchaudio.transforms.AmplitudeToDB()).to(device)
 
+    # Select features and augmentation
     spectrogram_transform = my_feature().to(device)  # mag STFT with intensity vectors
+    print(spectrogram_transform)
+    augmentation_transform = get_augmentation(device=device).to(device)
+    print(augmentation_transform)
 
     # Initial loss:
     x, target = dataloader_train.dataset[0]
@@ -178,51 +218,60 @@ def main():
         print('>>>>>>>> Training START  <<<<<<<<<<<<')
 
         iter_idx = 0
+        start_step_time = time.time()
         for data in islice(dataloader_train, config.num_iters + 1):
-            start_step_time = time.time()
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
-                                         device=device, features_transform=spectrogram_transform,
+                                         device=device, features_transform=spectrogram_transform, augmentation_transform=augmentation_transform,
                                          solver=solver, writer=writer)
+
+            if iter_idx % config.print_every == 0 and iter_idx > 0:
+                start_step_time = time.time()
 
             if iter_idx % config.logging_interval == 0 and iter_idx > 0:
                 seld_metrics, val_loss = eval_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
                                                         device=device, features_transform=spectrogram_transform,
                                                         solver=solver, writer=writer,
                                                         dcase_output_folder=config['directory_output_results'])
+                curr_time = time.time() - start_time
                 print(
                     'iteration: {}/{}, time: {:0.2f}, '
                     'train_loss: {:0.4f}, val_loss: {:0.4f}, '
                     'ER/F/LE/LR/SELD: {}, '.format(
                         iter_idx, config.num_iters, curr_time,
                         train_loss, val_loss,
-                        '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),
-                    ))
+                        '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),))
+
+                print('\n Classwise results on validation data')
+                print('Class\tER\t\tF\t\tLE\t\tLR\t\tSELD_score')
+                seld_metrics_class_wise = seld_metrics[5]
+                for cls_cnt in range(config['unique_classes']):
+                    print('{}\t\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt,
+                                                                                   seld_metrics_class_wise[0][cls_cnt],
+                                                                                   seld_metrics_class_wise[1][cls_cnt],
+                                                                                   seld_metrics_class_wise[2][cls_cnt],
+                                                                                   seld_metrics_class_wise[3][cls_cnt],
+                                                                                   seld_metrics_class_wise[4][cls_cnt]))
+                print('================================================ \n')
 
             # Schedulers
             solver.lr_step(seld_metrics[4] if seld_metrics is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
-
-            curr_time = time.time() - start_time
             iter_idx += 1
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
-
-        print('Classwise results on validation data')
-        print('Class\tER\tF\tLE\tLR\tSELD_score')
-        seld_metrics_class_wise = seld_metrics[5]
-        for cls_cnt in range(config['unique_classes']):
-            print('{}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt, seld_metrics_class_wise[0][cls_cnt],
-                                                                           seld_metrics_class_wise[1][cls_cnt],
-                                                                           seld_metrics_class_wise[2][cls_cnt],
-                                                                           seld_metrics_class_wise[3][cls_cnt],
-                                                                           seld_metrics_class_wise[4][cls_cnt]))
 
     elif config.mode == 'eval':
         raise NotImplementedError
 
 
-def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: nn.Sequential, solver, writer):
+def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
+                    features_transform: nn.Sequential, augmentation_transform: [nn.Sequential, None], solver, writer):
     # Training iteration
     x, target = data
     x, target = x.to(device), target.to(device)
+    if augmentation_transform is not None:
+        augmentation_transform.reset_G(G_type='spherical_cap_soft')
+        if False:  # Debugging
+            augmentation_transform.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
+        x = augmentation_transform(x)
     x = features_transform(x)
     solver.set_input(x, target)
     solver.train_step()

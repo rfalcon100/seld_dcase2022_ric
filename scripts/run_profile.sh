@@ -15,9 +15,9 @@ source activate audio2022
 pwd
 
 # Read the task_id
-#task_id=$1
-#echo 'Setting task_id to = '
-#echo $task_id
+num_w=$1
+echo 'Setting num_w to = '
+echo $num_w
 
 #Sanity check, is the anaconda environment loaded ?
 hostname
@@ -26,7 +26,7 @@ which python
 echo "init done"
 
 echo "Start of job"
-srun python main.py
+srun python main.py --exp_name profile_"$num_w" --num_workers $num_w --job_id %j
 echo "End of job"
 
 conda deactivate
