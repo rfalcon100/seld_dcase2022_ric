@@ -274,7 +274,8 @@ class DCASE_SELD_Dataset(Dataset):
                  chunk_mode: str = 'fixed',
                  return_fname: bool = False,
                  multi_track: bool = False,
-                 num_classes: int = 13):
+                 num_classes: int = 13,
+                 ignore_labels: bool = False):
         super().__init__()
         self.directory_root = directory_root
         self.list_dataset = list_dataset  # list of wav filenames  , e.g. './data_dcase2021_task3/foa_dev/dev-val/fold5_room1_mix001.wav'
@@ -284,6 +285,7 @@ class DCASE_SELD_Dataset(Dataset):
         self.return_fname = return_fname
         self.multi_track = multi_track
         self.num_classes = num_classes
+        self.ignore_labels = ignore_labels  # This is to avoid loading labels. Useful when doing evaluation.
         self.resampler = None
 
         self._fnames = []
@@ -297,18 +299,22 @@ class DCASE_SELD_Dataset(Dataset):
         for fname in self._fnames:
             audio, fs, duration = _read_audio(fname=fname, directory_root=self.directory_root,
                                               resampler=self.resampler, trim_seconds=self.trim_wavs)
-            time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
+            if not self.ignore_labels:
+                time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
+                self._time_array_dict[fname] = time_array
             self._audios[fname] = audio
             self._fs[fname] = fs
             self.durations[fname] = duration
-            self._time_array_dict[fname] = time_array
 
         self.__validate()
         print(self)
 
     def __validate(self):
         assert len(self._fnames) == len(self._audios), 'Fnames and audios should have the same count'
-        assert len(self._fnames) == len(self._time_array_dict), 'Fnames and time_arrays should have the same count'
+        assert len(self._fnames) == len(self.durations), 'Fnames and durations should have the same count'
+        assert len(self._fnames) == len(self._fs), 'Fnames and fs should have the same count'
+        if not self.ignore_labels:
+            assert len(self._fnames) == len(self._time_array_dict), 'Fnames and time_arrays should have the same count'
 
     def __len__(self):
         return len(self._fnames)
@@ -325,6 +331,7 @@ class DCASE_SELD_Dataset(Dataset):
         fmt_str += '    Chunk Mode: {}\n'.format(self.chunk_mode)
         fmt_str += '    Trim audio: {}\n'.format(self.trim_wavs)
         fmt_str += '    Multi_track: {}\n'.format(self.multi_track)
+        fmt_str += '    Ignore labels: {}\n'.format(self.ignore_labels)
         return fmt_str
 
     def __getitem__(self, item):
@@ -332,7 +339,10 @@ class DCASE_SELD_Dataset(Dataset):
         audio = self._audios[fname]
         fs = self._fs[fname]
         duration = self.durations[fname]
-        time_array = self._time_array_dict[fname]
+        if not self.ignore_labels:
+            time_array = self._time_array_dict[fname]
+        else:
+            time_array = None
 
         # Select a slice
         if self.chunk_mode == 'fixed':
@@ -341,8 +351,11 @@ class DCASE_SELD_Dataset(Dataset):
             audio, label = _random_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio, num_classes=self.num_classes,
                                          trim_wavs=self.trim_wavs, clip_length_seconds=duration, multi_track=self.multi_track)
         elif self.chunk_mode == 'full':
-            label = _get_labels(time_array, start_sec=0, fs=fs, chunk_size_audio=audio.shape[-1], rotation_pattern=None,
-                                multi_track=self.multi_track, num_classes=self.num_classes)
+            if not self.ignore_labels:
+                label = _get_labels(time_array, start_sec=0, fs=fs, chunk_size_audio=audio.shape[-1], rotation_pattern=None,
+                                    multi_track=self.multi_track, num_classes=self.num_classes)
+            else:
+                label = np.empty(1)
 
         if self.return_fname:
             return audio, torch.from_numpy(label.astype(np.float32)), fname
@@ -412,7 +425,7 @@ def _get_padders(chunk_size_seconds:float = 1.27,
     # Wavs:
     fs = audio_fs
     audio_full_size = fs * duration_seconds
-    audio_chunk_size = int(fs * chunk_size_seconds)
+    audio_chunk_size = math.ceil(fs * chunk_size_seconds)
     audio_pad_size = math.ceil(audio_full_size / audio_chunk_size) + math.ceil(audio_fs / labels_fs / overlap)
     audio_padder = nn.ConstantPad1d(padding=(0, audio_pad_size), value=0.0)
     audio_step_size = int(audio_chunk_size * overlap)
@@ -523,7 +536,8 @@ def test_validation_histograms():
                                  chunk_mode='full',
                                  trim_wavs=-1,
                                  return_fname=True,
-                                 num_classes=13)
+                                 num_classes=13,
+                                 multi_track=True)
 
     spec = torchaudio.transforms.Spectrogram(
         n_fft=512,

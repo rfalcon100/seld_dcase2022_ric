@@ -1,0 +1,79 @@
+# Submission information
+submission:
+  # Submission label
+  # Label is used to index submissions, to avoid overlapping codes among submissions
+  # use following way to form your label:
+  # [Last name of corresponding author]_[Abbreviation of institute of the corresponding author]_task[task number]_[index number of your submission (1-4)]
+  label: FalconPerez_Aalto_task3_2
+
+  # Submission name
+  # This name will be used in the results tables when space permits
+  name: DCASE2022 FOA audio domain augmentation
+
+  # Submission name abbreviated
+  # This abbreviated name will be used in the results table when space is tight, maximum 10 characters
+  abbreviation: FOA_rawaug
+
+  # Submission authors in order, mark one of the authors as corresponding author.
+  authors:
+    # First author
+    - lastname: Falcon-Perez
+      firstname: Ricardo
+      email: ricardo.falconperez@aalto.fi                  # Contact email address
+      corresponding: true                             	# Mark true for one of the authors
+
+      # Affiliation information for the author
+      affiliation:
+        abbreviation: Aalto
+        institute: Aalto University
+        department: Signal Processing and Acoustics
+        location: Espoo, Finland
+
+# System information
+system:
+  # System description, meta data provided here will be used to do
+  # meta analysis of the submitted system. Use general level tags, if possible use the tags provided in comments.
+  # If information field is not applicable to the system, use "!!null".
+  description:
+
+    # Audio input
+    input_format: Ambisonic                  	# e.g. Ambisonic or Microphone Array or both
+    input_sampling_rate: 24kHz          	#
+
+    # Acoustic representation
+    acoustic_features: magnitude spectra, intensity vector   # e.g one or multiple [phase and magnitude spectra, mel spectra, GCC-PHAT, TDOA, intensity vector ...]
+
+    # Data augmentation methods
+    data_augmentation: [directional loudness, random equalization, random gain, pitch shift, polarity inversion, colored noise, spliceout]            	# [time stretching, block mixing, pitch shifting, ...]
+
+    # Machine learning
+    # In case of using ensemble methods, please specify all methods used (comma separated list).
+    machine_learning_method: CRNN          	# e.g one or multiple [GMM, HMM, SVM, kNN, MLP, CNN, RNN, CRNN, NMF, random forest, ensemble, ...]
+
+
+  # System complexity, meta data provided here will be used to evaluate
+  # submitted systems from the computational load perspective.
+  complexity:
+
+    # Total amount of parameters used in the acoustic model. For neural networks, this
+    # information is usually given before training process in the network summary.
+    # For other than neural networks, if parameter count information is not directly available,
+    # try estimating the count as accurately as possible.
+    # In case of ensemble approaches, add up parameters for all subsystems.
+    total_parameters: 4709607
+
+  # URL to the source code of the system [optional]
+  source_code: https://github.com/rfalcon100/seld_dcase2022_ric
+
+# System results
+results:
+
+  development_dataset:
+    # System result for development dataset on the provided testing split.
+
+    # Overall score
+    overall:
+      ER_20: 0.81
+      F_20: 14.0
+      LE_CD: 41.4
+      LR_CD: 32.0

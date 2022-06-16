@@ -72,20 +72,27 @@ def get_parameters():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('--exp_name', type=str, default='debug', help="Optional experiment name.")
+    parser.add_argument('--mode', type=str, default='eval', help='train or eval')
     parser.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
     parser.add_argument('--num_workers', type=int, default=0, help='Num workers for dataloader.')
+    parser.add_argument('--detection_threshold', type=float, default=0.4, help='Threshold for detecting events during evaluation.')
 
+    # Dataset arguments
+    parser.add_argument('--dataset_chunk_size_seconds', type=float, default=2.55, help='Chunk size of the input audio, in seconds. For example 1.27, or 2.55.')
+    parser.add_argument('--dataset_root_eval', type=str, default='/m/triton/scratch/work/falconr1/sony/data_dcase2022', help='Root path for the evaluation dataset. See helper.md for examples.')
+    parser.add_argument('--dataset_list_eval', type=str, default='dcase2022_eval_all.txt', help='File with wav filenames for the evaluation dataset. See helper.md for examples.')
     config = parser.parse_args()
 
     params = {
-        'exp_name': 'debug',  # baseline_dcase2021
+        'exp_name': config.exp_name,  # debug1
         'seed_mode': 'balanced',
-        'mode': 'train',
-        'num_iters': 10000,  # debug 10000
+        'job_id': config.job_id,
+        'mode': config.mode,
+        'num_iters': 100000,  # debug 10000
         'batch_size': 64,  # debug 1
-        'num_workers': 0,
+        'num_workers': config.num_workers,
         'print_every': 50,
-        'logging_interval': 500,  # debug 100 or 50
+        'logging_interval': 10000,  # debug 100 or 50
         'lr': 1e-4,
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
@@ -96,27 +103,31 @@ def get_parameters():
         'input_shape': [7, 96, 256],
         'output_shape': [3, 12, 256],
         'logging_dir': './logging',
-        'dataset_root': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-        'dataset_list_train': 'dcase2022_devtrain_all.txt',
-        'dataset_list_valid': 'dcase2022_devtrain_all.txt',
-        'dataset_trim_wavs': 30,
-        'dataset_chunk_size': math.ceil(24000 * 1.27),
+        'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                         '/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim'],
+        'dataset_list_train': ['dcase2022_devtrain_all.txt',
+                               'dcase2022_sim_all.txt'],
+        'dataset_root_valid': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+        'dataset_list_valid': 'dcase2022_devtest_all.txt',
+        'dataset_root_eval': config.dataset_root_eval,
+        'dataset_list_eval': config.dataset_list_eval,
+        'dataset_trim_wavs':-1,
+        'dataset_chunk_size': math.ceil(24000 * config.dataset_chunk_size_seconds),
         'dataset_chunk_mode': 'random',
-        'dataset_multi_track': True,
+        'dataset_multi_track': False,
         'thresh_unify': 15,
+        'use_mixup': True,
+        'mixup_alpha': 0.2,
+        'detection_threshold': config.detection_threshold,
     }
 
-    params['exp_name'] = config.exp_name
-    params['job_id'] = config.job_id
-    params['num_workers'] = config.num_workers
-
-    if '2020' in params['dataset_root']:
+    if '2020' in params['dataset_root_valid']:
         params['unique_classes'] = 14
         params['output_shape'][-2] = 14
-    elif '2021' in params['dataset_root']:
+    elif '2021' in params['dataset_root_valid']:
         params['unique_classes'] = 12
         params['output_shape'][-2] = 12
-    elif '2022' in params['dataset_root']:
+    elif '2022' in params['dataset_root_valid']:
         params['unique_classes'] = 13
         params['output_shape'][-2] = 13
 
@@ -127,6 +138,7 @@ def get_parameters():
                                            f'n-work:{params["num_workers"]}_' \
                                            f'{params["model"]}_' \
                                            f'{params["model_normalization"]}_' \
+                                           f'{params["dataset_chunk_size"]}_' \
                                            f'_{datetime.now().strftime("%Y-%m-%d-%H%M%S")}'
     params['logging_dir'] = f'{params["logging_dir"]}/{params["experiment_description"]}'
     params['directory_output_results'] = f'{params["logging_dir"]}/tmp_results'

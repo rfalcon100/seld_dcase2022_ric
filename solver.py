@@ -6,7 +6,7 @@ import torch.optim as optim
 import numpy as np
 from torchsummary import summary
 
-from utils import GradualWarmupScheduler, grad_norm
+from utils import GradualWarmupScheduler, grad_norm, mixup_data, mixup_criterion
 from models.crnn import CRNN10, CRNN
 from models.losses import MSELoss_ADPIT
 
@@ -33,6 +33,7 @@ class Solver(object):
         self._fixed_input = None
         self._fixed_input_counter = 0
         self._fixed_label = None
+        self.lam = 1 # For mixup
 
         # If using multiple losses, each loss has a name, value, and function (criterion)
         self.loss_names = ['rec']
@@ -49,6 +50,58 @@ class Solver(object):
         if self.model_checkpoint is not None:
             print("Loading model state from {}".format(self.model_checkpoint))
             self.predictor.load_state_dict(torch.load(self.model_checkpoint, map_location=self.device))
+
+    def save(self, each_monitor_path=None, iteration=None, start_time=None):
+        raise NotImplementedError
+        # TODO Finish this
+        self._each_checkpoint_path = '{}/{}_params_{}_{}_{:07}.pth'.format(
+            each_monitor_path,
+            self._args.net,
+            os.path.splitext(os.path.basename(self._train_list))[0],
+            start_time,
+            iteration)
+        if self._args.parallel_gpu:
+            torch_generator_net_state_dict = self._torch_generator_net.module.state_dict()
+            torch_discrminator_net_state_dict = self._torch_discriminator_net.module.state_dict()
+        else:
+            torch_generator_net_state_dict = self._torch_generator_net.state_dict()
+            torch_discrminator_net_state_dict = self._torch_discriminator_net.state_dict()
+        checkpoint = {'generator_model_state_dict': torch_generator_net_state_dict,
+                      'generator_optimizer_state_dict': self._torch_generator_optimizer.state_dict(),
+                      'generator_scheduler_state_dict': self._torch_generator_lr_scheduler.state_dict(),
+                      'discriminator_model_state_dict': torch_discrminator_net_state_dict,
+                      'discriminator_optimizer_state_dict': self._torch_discriminator_optimizer.state_dict(),
+                      'discriminator_scheduler_state_dict': self._torch_discriminator_lr_scheduler.state_dict(),
+                      'rng_state': torch.get_rng_state(),
+                      'cuda_rng_state': torch.cuda.get_rng_state()}
+        torch.save(checkpoint, self._each_checkpoint_path)
+        print('Checkpoint saved to {}.'.format(self._each_checkpoint_path))
+
+        np.save('{}/example_input_latest'.format(each_monitor_path), self._input)
+        np.save('{}/example_label_latest'.format(each_monitor_path), self._label)
+        if type(self._torch_y_hat) is tuple:
+            np.save('{}/example_pred_latest'.format(each_monitor_path),
+                    self._torch_y_hat[0].cpu().detach().numpy())
+        else:
+            np.save('{}/example_pred_latest'.format(each_monitor_path), self._torch_y_hat.cpu().detach().numpy())
+
+    def load(self):
+        raise NotImplementedError
+        # TODO Finish this
+        checkpoint = torch.load(self._args.load_model, map_location=lambda storage, loc: storage)
+        if self._args.parallel_gpu:
+            self._torch_generator_net.module.load_state_dict(checkpoint['generator_model_state_dict'])
+            self._torch_discriminator_net.module.load_state_dict(checkpoint['discriminator_model_state_dict'])
+        else:
+            self._torch_generator_net.load_state_dict(checkpoint['generator_model_state_dict'])
+            self._torch_discriminator_net.load_state_dict(checkpoint['discriminator_model_state_dict'])
+        # use for restart the same training
+        self._torch_generator_optimizer.load_state_dict(checkpoint['generator_optimizer_state_dict'])
+        self._torch_generator_lr_scheduler.load_state_dict(checkpoint['generator_scheduler_state_dict'])
+        self._torch_discriminator_optimizer.load_state_dict(checkpoint['discriminator_optimizer_state_dict'])
+        self._torch_discriminator_lr_scheduler.load_state_dict(checkpoint['discriminator_scheduler_state_dict'])
+        print('Checkpoint was loaded from to {}.'.format(self._args.load_model))
+
 
     def build_predictor(self):
         predictor = CRNN10(class_num=self.config.output_shape[1],
@@ -96,7 +149,7 @@ class Solver(object):
 
     def lr_step(self, val_loss, step=None):
         """ step in iterations"""
-        if step % 1000 == 0:   # Hard-coded update at 1000 for generator
+        if step % 1 == 0:   # Step every validation, controlled from outside
             self.lr_scheduler.step(metrics=val_loss)
 
     def get_lrs(self):
@@ -118,11 +171,23 @@ class Solver(object):
         return grad_norm_model
 
     def forward(self):
+        # mixup
+        if self.config.use_mixup:
+            self.data_gen['x'], self.data_gen['y_a'], self.data_gen['y_b'], self.lam = mixup_data(self.data_gen['x'],
+                                                                                             self.data_gen['y'],
+                                                                                             alpha=self.config.mixup_alpha,
+                                                                                             use_cuda=self.device == 'cuda')
+        else:
+            self.lam = 1.
         self.data_gen['y_hat'] = self.predictor(self.data_gen['x'])
 
     def backward_predictor(self):
         """Calculate GAN and reconstruction loss for the generator"""
-        loss_G_rec = self.loss_fns['rec'](self.data_gen['y_hat'], self.data_gen['y'])
+        if self.config.use_mixup:
+            loss_func = mixup_criterion(self.data_gen['y_a'], self.data_gen['y_b'], self.lam)
+            loss_G_rec = loss_func(self.loss_fns['rec'], self.data_gen['y_hat'])
+        else:
+            loss_G_rec = self.loss_fns['rec'](self.data_gen['y_hat'], self.data_gen['y'])
         # Total weighted loss
         self.loss_values['rec'] = loss_G_rec
         loss_G_rec.backward()
