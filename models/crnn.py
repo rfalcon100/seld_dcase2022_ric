@@ -125,6 +125,9 @@ class CRNN10(nn.Module):
 
         self.sigmoid = sigmoid
         self.multi_track = multi_track
+        if self.multi_track:
+            pass
+            #self.out_channels += 1  #output channels are 4 = activity +xyz
 
         self.conv_block1 = ConvBlock(in_channels=in_channels, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)
@@ -140,6 +143,7 @@ class CRNN10(nn.Module):
         self.event_fc = nn.Linear(512, class_num, bias=True)
         if self.multi_track:
             self.xyz_fc = nn.Linear(512, 3 * 3 * class_num, bias=True)
+            #self.xyz_fc = nn.Linear(512, 6 * 4 * class_num, bias=True) # mACCDOA with ADPIT, 6 tracks, 4 channels = activity +xyz
         else:
             self.xyz_fc = nn.Linear(512, 3 * class_num, bias=True)
 
@@ -180,9 +184,10 @@ class CRNN10(nn.Module):
             if self.sigmoid:
                 event_output = torch.sigmoid(event_output)
             '''(batch_size, time_steps, 1 * class_num)'''
-        elif self.out_channels == 3:
+        elif self.out_channels > 1:
             event_output = self.xyz_fc(x)
             '''(batch_size, time_steps, 3 * class_num)'''
+            # or (batch_size, time_steps, 4 * 6 * class_num)
 
         # Interpolate
         event_output = interpolate(event_output, self.interp_ratio)
@@ -190,6 +195,10 @@ class CRNN10(nn.Module):
         event_output = event_output.transpose(1, 2)
         if self.multi_track:
             event_output = event_output.view(-1, 3, self.out_channels, self.class_num, t)
+
+            b, ch, tra, cls, ts = event_output.shape
+            event_output = event_output.permute([0, 4, 1, 2, 3])
+            event_output = event_output.view([-1, ts, ch * tra * cls])
         else:
             event_output = event_output.view(-1, self.out_channels, self.class_num, t)
 

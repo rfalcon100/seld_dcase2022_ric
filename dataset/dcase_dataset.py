@@ -1,5 +1,5 @@
 
-from typing import Iterable, Tuple, TypeVar, Callable, Any, List, Union
+from typing import Iterable, Tuple, TypeVar, Callable, Any, List, Dict, Union
 import math
 import numpy as np
 import os.path
@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 import warnings
 import pandas as pd
 
+import plots
 from utils import validate_audio
 
 # Useful references for the dataloading using iterable datasets:
@@ -20,7 +21,23 @@ from utils import validate_audio
 
 # https://discuss.pytorch.org/t/implementing-an-infinite-loop-dataset-dataloader-combo/35567/4
 
-def _read_audio(fname: str, directory_root: str, resampler: Union[torch.nn.Sequential, None], trim_seconds: int = -1) -> Tuple[torch.Tensor, int]:
+def convert_output_format_polar_to_cartesian(in_dict):
+    out_dict = {}
+    for frame_cnt in in_dict.keys():
+        if frame_cnt not in out_dict:
+            out_dict[frame_cnt] = []
+            for tmp_val in in_dict[frame_cnt]:
+                ele_rad = tmp_val[3] * np.pi / 180.
+                azi_rad = tmp_val[2] * np.pi / 180
+
+                tmp_label = np.cos(ele_rad)
+                x = np.cos(azi_rad) * tmp_label
+                y = np.sin(azi_rad) * tmp_label
+                z = np.sin(ele_rad)
+                out_dict[frame_cnt].append([tmp_val[0], tmp_val[1], x, y, z])
+    return out_dict
+
+def _read_audio(fname: str, directory_root: str, resampler: Union[torch.nn.Sequential, None], trim_seconds: int = -1) -> Tuple[torch.Tensor, int, float]:
     ''' trim_seconds = to limit how many seconds to load '''
     fpath = os.path.join(directory_root,
                          fname)
@@ -35,7 +52,6 @@ def _read_audio(fname: str, directory_root: str, resampler: Union[torch.nn.Seque
 
     return torch.tensor(this_audio, dtype=torch.float), fs, duration_seconds
 
-
 def _read_time_array(fname: str, directory_root: str) -> List:
     ''' Time arrays are the full list of events for a whole audio file.
     This is before any parsing'''
@@ -46,8 +62,36 @@ def _read_time_array(fname: str, directory_root: str) -> List:
 
     return this_time_array
 
+def load_output_format_file(fname: str, directory_root: str):
+    """
+    Adapted from the official baseline.
+    Loads DCASE output format csv file and returns it in dictionary format
+
+    :param _output_format_file: DCASE output format CSV
+    :return: _output_dict: dictionary
+    """
+
+    fpath = os.path.join(directory_root,
+                         fname)
+    fpath_csv = fpath.replace('mic', 'metadata').replace('foa', 'metadata').replace('wav', 'csv')
+
+    _output_dict = {}
+    _fid = open(fpath_csv, 'r')
+    # next(_fid)
+    for _line in _fid:
+        _words = _line.strip().split(',')
+        _frame_ind = int(_words[0])
+        if _frame_ind not in _output_dict:
+            _output_dict[_frame_ind] = []
+        if len(_words) == 5: #polar coordinates
+            _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4])])
+        elif len(_words) == 6: # cartesian coordinates
+            _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5])])
+    _fid.close()
+    return _output_dict
 
 def _add_rotated_label_each_frame(label, time_array4frame_event, start_frame, rotation_pattern=None):
+    """ From Sony """
     event_class = time_array4frame_event[1]
 
     azi_rad = time_array4frame_event[3] / 180 * np.pi
@@ -67,7 +111,6 @@ def _add_rotated_label_each_frame(label, time_array4frame_event, start_frame, ro
     label[2, event_class, start_frame: start_frame + 10] = z_axis
 
     return (label)
-
 
 def _get_labels(time_array, start_sec, fs, chunk_size_audio, rotation_pattern=None, multi_track=False, num_classes=12):
     """
@@ -145,7 +188,6 @@ def _get_labels(time_array, start_sec, fs, chunk_size_audio, rotation_pattern=No
         ))
     return (label)
 
-
 def _read_fnames(directory_root: str, list_dataset: str) -> List:
     """Reads the fnames in the list_dataset.
     Each fname corresponds to a single wav file in the dataset.
@@ -163,35 +205,118 @@ def _read_fnames(directory_root: str, list_dataset: str) -> List:
         fnames.append(fname)
     return fnames
 
+def get_adpit_labels_for_file(_desc_file: Dict, _nb_label_frames: int, num_classes: int = 13) -> np.ndarray:
+    """
+    
+    ADAPATED from csl_feature_class from the baseline, with modifications to remove the dependcy to the class.
 
-def _read_audio_and_time_array(fname: str, time_array: List, directory_root: str,
-                               chunk_size_audio: float, overlap_size: float,
-                               resampler: nn.Sequential = None, use_overlap: bool = False) -> torch.Tensor:
-    chunks = []
-    fpath = os.path.join(directory_root,
-                         fname)
-    this_audio, fs = torchaudio.load(fpath)
-    if resampler is not None:
-        this_audio = resampler(this_audio)
+    Reads description file and returns classification based SED labels and regression based DOA labels
+    for multi-ACCDOA with Auxiliary Duplicating Permutation Invariant Training (ADPIT)
 
-    # if is validation or test, do not contain overlap data
-    audio_length = this_audio.shape[-1]
-    n_chunks = int(audio_length / chunk_size_audio) if use_overlap else int((audio_length - overlap_size) / chunk_size_audio) + 1
-    start_i = 0
-    for n_chunks in range(n_chunks):
-        end_i = start_i + chunk_size_audio
-        audio_chunk = this_audio[:, start_i:end_i]
-        chunks.append(audio_chunk)
-        start_i = end_i
+    :param _desc_file: metadata description file
+    :return: label_mat: of dimension [nb_frames, 6, 4(=act+XYZ), max_classes]
+    """
 
-    chunks = torch.stack(chunks, dim=0)
-    return torch.tensor(chunks, dtype=torch.float)
+    se_label = np.zeros((_nb_label_frames, 6, num_classes))  # [nb_frames, 6, max_classes]
+    x_label = np.zeros((_nb_label_frames, 6, num_classes))
+    y_label = np.zeros((_nb_label_frames, 6, num_classes))
+    z_label = np.zeros((_nb_label_frames, 6, num_classes))
 
+    for frame_ind, active_event_list in _desc_file.items():
+        if frame_ind < _nb_label_frames:
+            active_event_list.sort(key=lambda x: x[0])  # sort for ov from the same class
+            active_event_list_per_class = []
+            for i, active_event in enumerate(active_event_list):
+                active_event_list_per_class.append(active_event)
+                if i == len(active_event_list) - 1:  # if the last
+                    if len(active_event_list_per_class) == 1:  # if no ov from the same class
+                        # a0----
+                        active_event_a0 = active_event_list_per_class[0]
+                        se_label[frame_ind, 0, active_event_a0[0]] = 1
+                        x_label[frame_ind, 0, active_event_a0[0]] = active_event_a0[2]
+                        y_label[frame_ind, 0, active_event_a0[0]] = active_event_a0[3]
+                        z_label[frame_ind, 0, active_event_a0[0]] = active_event_a0[4]
+                    elif len(active_event_list_per_class) == 2:  # if ov with 2 sources from the same class
+                        # --b0--
+                        active_event_b0 = active_event_list_per_class[0]
+                        se_label[frame_ind, 1, active_event_b0[0]] = 1
+                        x_label[frame_ind, 1, active_event_b0[0]] = active_event_b0[2]
+                        y_label[frame_ind, 1, active_event_b0[0]] = active_event_b0[3]
+                        z_label[frame_ind, 1, active_event_b0[0]] = active_event_b0[4]
+                        # --b1--
+                        active_event_b1 = active_event_list_per_class[1]
+                        se_label[frame_ind, 2, active_event_b1[0]] = 1
+                        x_label[frame_ind, 2, active_event_b1[0]] = active_event_b1[2]
+                        y_label[frame_ind, 2, active_event_b1[0]] = active_event_b1[3]
+                        z_label[frame_ind, 2, active_event_b1[0]] = active_event_b1[4]
+                    else:  # if ov with more than 2 sources from the same class
+                        # ----c0
+                        active_event_c0 = active_event_list_per_class[0]
+                        se_label[frame_ind, 3, active_event_c0[0]] = 1
+                        x_label[frame_ind, 3, active_event_c0[0]] = active_event_c0[2]
+                        y_label[frame_ind, 3, active_event_c0[0]] = active_event_c0[3]
+                        z_label[frame_ind, 3, active_event_c0[0]] = active_event_c0[4]
+                        # ----c1
+                        active_event_c1 = active_event_list_per_class[1]
+                        se_label[frame_ind, 4, active_event_c1[0]] = 1
+                        x_label[frame_ind, 4, active_event_c1[0]] = active_event_c1[2]
+                        y_label[frame_ind, 4, active_event_c1[0]] = active_event_c1[3]
+                        z_label[frame_ind, 4, active_event_c1[0]] = active_event_c1[4]
+                        # ----c2
+                        active_event_c2 = active_event_list_per_class[2]
+                        se_label[frame_ind, 5, active_event_c2[0]] = 1
+                        x_label[frame_ind, 5, active_event_c2[0]] = active_event_c2[2]
+                        y_label[frame_ind, 5, active_event_c2[0]] = active_event_c2[3]
+                        z_label[frame_ind, 5, active_event_c2[0]] = active_event_c2[4]
 
-def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float,
-                  trim_wavs: int, clip_length_seconds: int = 60, multi_track: bool = False, num_classes=13) \
-        -> Tuple[torch.Tensor, torch.Tensor]:
-    """Returns a random slice of an audio and its corresponding time array (label)"""
+                elif active_event[0] != active_event_list[i + 1][0]:  # if the next is not the same class
+                    if len(active_event_list_per_class) == 1:  # if no ov from the same class
+                        # a0----
+                        active_event_a0 = active_event_list_per_class[0]
+                        se_label[frame_ind, 0, active_event_a0[0]] = 1
+                        x_label[frame_ind, 0, active_event_a0[0]] = active_event_a0[2]
+                        y_label[frame_ind, 0, active_event_a0[0]] = active_event_a0[3]
+                        z_label[frame_ind, 0, active_event_a0[0]] = active_event_a0[4]
+                    elif len(active_event_list_per_class) == 2:  # if ov with 2 sources from the same class
+                        # --b0--
+                        active_event_b0 = active_event_list_per_class[0]
+                        se_label[frame_ind, 1, active_event_b0[0]] = 1
+                        x_label[frame_ind, 1, active_event_b0[0]] = active_event_b0[2]
+                        y_label[frame_ind, 1, active_event_b0[0]] = active_event_b0[3]
+                        z_label[frame_ind, 1, active_event_b0[0]] = active_event_b0[4]
+                        # --b1--
+                        active_event_b1 = active_event_list_per_class[1]
+                        se_label[frame_ind, 2, active_event_b1[0]] = 1
+                        x_label[frame_ind, 2, active_event_b1[0]] = active_event_b1[2]
+                        y_label[frame_ind, 2, active_event_b1[0]] = active_event_b1[3]
+                        z_label[frame_ind, 2, active_event_b1[0]] = active_event_b1[4]
+                    else:  # if ov with more than 2 sources from the same class
+                        # ----c0
+                        active_event_c0 = active_event_list_per_class[0]
+                        se_label[frame_ind, 3, active_event_c0[0]] = 1
+                        x_label[frame_ind, 3, active_event_c0[0]] = active_event_c0[2]
+                        y_label[frame_ind, 3, active_event_c0[0]] = active_event_c0[3]
+                        z_label[frame_ind, 3, active_event_c0[0]] = active_event_c0[4]
+                        # ----c1
+                        active_event_c1 = active_event_list_per_class[1]
+                        se_label[frame_ind, 4, active_event_c1[0]] = 1
+                        x_label[frame_ind, 4, active_event_c1[0]] = active_event_c1[2]
+                        y_label[frame_ind, 4, active_event_c1[0]] = active_event_c1[3]
+                        z_label[frame_ind, 4, active_event_c1[0]] = active_event_c1[4]
+                        # ----c2
+                        active_event_c2 = active_event_list_per_class[2]
+                        se_label[frame_ind, 5, active_event_c2[0]] = 1
+                        x_label[frame_ind, 5, active_event_c2[0]] = active_event_c2[2]
+                        y_label[frame_ind, 5, active_event_c2[0]] = active_event_c2[3]
+                        z_label[frame_ind, 5, active_event_c2[0]] = active_event_c2[4]
+                    active_event_list_per_class = []
+
+    label_mat = np.stack((se_label, x_label, y_label, z_label), axis=2)  # [nb_frames, 6, 4(=act+XYZ), max_classes]
+    return label_mat
+
+def _random_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float, trim_wavs: int, clip_length_seconds: int = 60) \
+        -> Tuple[torch.Tensor, int]:
+    """Returns a random slice of an audio and the corresponding starting time in sencods (useful to extract labels) """
 
     # Now we do it in seconds
     if trim_wavs > 0:
@@ -203,21 +328,15 @@ def _random_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_aud
                                            1))
     start_index = start_sec * fs
     sliced_audio = audio[:, start_index[0]: start_index[0] + round(chunk_size_audio)]
-    label = _get_labels(time_array, start_sec, fs, chunk_size_audio=chunk_size_audio,
-                        rotation_pattern=None, multi_track=multi_track, num_classes=num_classes)
-    return sliced_audio, label
+    return sliced_audio, start_sec
 
-
-def _fixed_slice(audio: torch.Tensor, fs: int, time_array: List, chunk_size_audio: float, num_classes=13):
+def _fixed_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float) -> Tuple[torch.Tensor, int]:
     """Returns a fixed slice of an audio and its corresponding time array (label)"""
     start_sec = 5  # Hardcoded start at 5 seconds
     start_sample = start_sec * fs
 
     sliced_audio = audio[:, start_sample : int(start_sample + chunk_size_audio)]
-    label = _get_labels(time_array, start_sec, fs=fs, chunk_size_audio=chunk_size_audio,
-                        rotation_pattern=None, multi_track=False, num_classes=num_classes)
-
-    return sliced_audio, label
+    return sliced_audio, start_sec
 
 
 class InfiniteDataLoader(DataLoader):
@@ -275,7 +394,8 @@ class DCASE_SELD_Dataset(Dataset):
                  return_fname: bool = False,
                  multi_track: bool = False,
                  num_classes: int = 13,
-                 ignore_labels: bool = False):
+                 ignore_labels: bool = False,
+                 labels_backend: str = 'sony'):
         super().__init__()
         self.directory_root = directory_root
         self.list_dataset = list_dataset  # list of wav filenames  , e.g. './data_dcase2021_task3/foa_dev/dev-val/fold5_room1_mix001.wav'
@@ -286,8 +406,11 @@ class DCASE_SELD_Dataset(Dataset):
         self.multi_track = multi_track
         self.num_classes = num_classes
         self.ignore_labels = ignore_labels  # This is to avoid loading labels. Useful when doing evaluation.
+        self.labels_backend = labels_backend  # Code to use when extracting labels from CSVs. For multitrack, we need the baseline. {'sony', 'backend'}
         self.resampler = None
 
+        if self.multi_track and self.labels_backend == 'sony':
+            warnings.warn('WARNING: When using multi-track labels, we should use the baseline back end.')
         self._fnames = []
         self._audios = {}
         self.durations = {}
@@ -300,7 +423,13 @@ class DCASE_SELD_Dataset(Dataset):
             audio, fs, duration = _read_audio(fname=fname, directory_root=self.directory_root,
                                               resampler=self.resampler, trim_seconds=self.trim_wavs)
             if not self.ignore_labels:
-                time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
+                if self.labels_backend == 'sony':
+                    time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
+                else:
+                    time_array = load_output_format_file(fname=fname, directory_root=self.directory_root)
+                    time_array = convert_output_format_polar_to_cartesian(time_array)
+                    time_array = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 100),
+                                                                   num_classes=self.num_classes)
                 self._time_array_dict[fname] = time_array
             self._audios[fname] = audio
             self._fs[fname] = fs
@@ -346,16 +475,34 @@ class DCASE_SELD_Dataset(Dataset):
 
         # Select a slice
         if self.chunk_mode == 'fixed':
-            audio, label = _fixed_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio, num_classes=self.num_classes)
+            audio, start_sec = _fixed_slice(audio, fs, chunk_size_audio=self.chunk_size_audio)
+            labels_duration = self.chunk_size_audio
         elif self.chunk_mode == 'random':
-            audio, label = _random_slice(audio, fs, time_array, chunk_size_audio=self.chunk_size_audio, num_classes=self.num_classes,
-                                         trim_wavs=self.trim_wavs, clip_length_seconds=duration, multi_track=self.multi_track)
+            audio, start_sec = _random_slice(audio, fs, chunk_size_audio=self.chunk_size_audio, trim_wavs=self.trim_wavs, clip_length_seconds=duration)
+            labels_duration = self.chunk_size_audio
         elif self.chunk_mode == 'full':
-            if not self.ignore_labels:
-                label = _get_labels(time_array, start_sec=0, fs=fs, chunk_size_audio=audio.shape[-1], rotation_pattern=None,
+            start_sec = 0
+            labels_duration = audio.shape[-1]
+        if not self.ignore_labels:
+            if self.labels_backend == 'sony':
+                label = _get_labels(time_array, start_sec=start_sec, fs=fs, chunk_size_audio=labels_duration, rotation_pattern=None,
                                     multi_track=self.multi_track, num_classes=self.num_classes)
             else:
-                label = np.empty(1)
+                if not self.multi_track:
+                    raise NotImplementedError
+                # TODO Hardcoded fs for laels at 100 ms
+                start_frame = int(start_sec) * 10
+                end_frame = start_frame + math.ceil(labels_duration / fs * 100) + 1
+                #label = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 10), num_classes=self.num_classes)
+
+                if end_frame > time_array.shape[0]:
+                    label = np.concatenate([time_array, np.zeros([end_frame - start_frame - time_array.shape[0], *time_array.shape[1:]])], axis=0)
+                else:
+                    label = time_array[start_frame: end_frame, ...]
+                if label.shape[0] < end_frame - start_frame:
+                    label = np.concatenate([label, np.zeros([end_frame - start_frame - label.shape[0], *label.shape[1:]])], axis=0)
+        else:
+            label = np.empty(1)
 
         if self.return_fname:
             return audio, torch.from_numpy(label.astype(np.float32)), fname
@@ -418,7 +565,7 @@ def test_dataset_train_iteration(num_iters=100, batch_size=32, num_workers=4):
     plt.show()
 
 
-def _get_padders(chunk_size_seconds:float = 1.27,
+def _get_padders(chunk_size_seconds: float = 1.27,
                  duration_seconds: float = 60.0,
                  overlap: float = 0.5,
                  audio_fs=24000, labels_fs=100):
@@ -537,7 +684,7 @@ def test_validation_histograms():
                                  trim_wavs=-1,
                                  return_fname=True,
                                  num_classes=13,
-                                 multi_track=True)
+                                 multi_track=False)
 
     spec = torchaudio.transforms.Spectrogram(
         n_fft=512,
@@ -594,9 +741,41 @@ def count_active_classes(all_labels: List, detection_threshold=0.5):
     #g.set_yscale("log")
     plt.show()
 
+def test_multi_track():
+    """ HEre I should test (manually):
+    - chunk_mode: {'fixed', 'random', 'full'}
+    - multi_track: True, False
+    - labels_backend: {'sony', 'baseline'}
+    """
+    dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 chunk_mode='full',
+                                 chunk_size=30480,
+                                 trim_wavs=-1,
+                                 return_fname=True,
+                                 num_classes=13,
+                                 multi_track=True,
+                                 labels_backend='baseline')  # test sony and baseline
+    audio, labels, fname = dataset[0]
+
+    if len(labels.shape) > 3:
+        this_label = labels[2]
+    else:
+        this_label = labels
+    plots.plot_labels(this_label)
+
+    raise ValueError
+        # This sitll fails when using full wavs, and backend baseline
+        # the size is not correct, I guess it is cropping somewhere
+    # note that the vanilla multitrack puts all the activity in the first track
+
+    a = 1
+
+
 if __name__ == '__main__':
     from utils import seed_everything
     seed_everything(1234, mode='balanced')
+    test_multi_track()
     test_validation_histograms()
     test_dataset_train_iteration()  # OK, I am happy
     test_validation_clean()  # seems ok, except when using overlaps

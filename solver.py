@@ -158,11 +158,19 @@ class Solver(object):
     def get_fixed_output(self):
         if self._fixed_input is not None:
             out = self.predictor(self._fixed_input).detach().cpu()
+
+            if self.config.dataset_multi_track:
+                b, ts, other = out.shape
+                out = out.view(-1, ts, 3, 3, self.config.unique_classes)
+                out = out[..., :, 0, :, :].permute([0, 2, 3, 1])
             return out
 
     def get_fixed_label(self):
         if self._fixed_label is not None:
             out = self._fixed_label.detach().cpu()
+            if self.config.dataset_multi_track:
+                b, ts, tra, ch, _ = out.shape
+                out = out[..., 0, 0:3, :].permute([0, 2, 3, 1])  # get first track only
             return out
 
     def get_grad_norm(self):

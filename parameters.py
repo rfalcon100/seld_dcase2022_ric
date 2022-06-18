@@ -72,7 +72,7 @@ def get_parameters():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('--exp_name', type=str, default='debug', help="Optional experiment name.")
-    parser.add_argument('--mode', type=str, default='eval', help='train or eval')
+    parser.add_argument('--mode', type=str, default='train', help='train or eval')
     parser.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
     parser.add_argument('--num_workers', type=int, default=0, help='Num workers for dataloader.')
     parser.add_argument('--detection_threshold', type=float, default=0.4, help='Threshold for detecting events during evaluation.')
@@ -88,8 +88,8 @@ def get_parameters():
         'seed_mode': 'balanced',
         'job_id': config.job_id,
         'mode': config.mode,
-        'num_iters': 100000,  # debug 10000
-        'batch_size': 64,  # debug 1
+        'num_iters': 200000,  # debug 10000
+        'batch_size': 32,  # debug 1
         'num_workers': config.num_workers,
         'print_every': 50,
         'logging_interval': 10000,  # debug 100 or 50
@@ -107,6 +107,8 @@ def get_parameters():
                          '/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim'],
         'dataset_list_train': ['dcase2022_devtrain_all.txt',
                                'dcase2022_sim_all.txt'],
+        #'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022'],
+        #'dataset_list_train': ['dcase2022_devtrain_debug.txt'],
         'dataset_root_valid': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
         'dataset_list_valid': 'dcase2022_devtest_all.txt',
         'dataset_root_eval': config.dataset_root_eval,
@@ -114,7 +116,7 @@ def get_parameters():
         'dataset_trim_wavs':-1,
         'dataset_chunk_size': math.ceil(24000 * config.dataset_chunk_size_seconds),
         'dataset_chunk_mode': 'random',
-        'dataset_multi_track': False,
+        'dataset_multi_track': True,
         'thresh_unify': 15,
         'use_mixup': True,
         'mixup_alpha': 0.2,

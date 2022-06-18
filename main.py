@@ -34,13 +34,14 @@ def get_dataset(config):
     datasets_train = []
     for dset_root, dset_list in zip(config.dataset_root, config.dataset_list_train):
         dataset_tmp = DCASE_SELD_Dataset(directory_root=dset_root,
-                                           list_dataset=dset_list,
-                                           chunk_size=config.dataset_chunk_size,
-                                           chunk_mode=config.dataset_chunk_mode,
-                                           trim_wavs=config.dataset_trim_wavs,
-                                           multi_track=config.dataset_multi_track,
-                                           num_classes=config.unique_classes,
-                                           return_fname=False)
+                                         list_dataset=dset_list,
+                                         chunk_size=config.dataset_chunk_size,
+                                         chunk_mode=config.dataset_chunk_mode,
+                                         trim_wavs=config.dataset_trim_wavs,
+                                         multi_track=config.dataset_multi_track,
+                                         num_classes=config.unique_classes,
+                                         labels_backend='baseline',
+                                         return_fname=False)
         datasets_train.append(dataset_tmp)
     dataset_train = torch.utils.data.ConcatDataset(datasets_train)
     dataloader_train = InfiniteDataLoader(dataset_train, batch_size=config.batch_size, num_workers=config.num_workers,
@@ -53,6 +54,7 @@ def get_dataset(config):
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
+                                       labels_backend='baseline',
                                        return_fname=True)
 
     return dataloader_train, dataset_valid
@@ -142,9 +144,13 @@ def main():
     # Select features and augmentation
     spectrogram_transform = my_feature().to(device)  # mag STFT with intensity vectors
     print(spectrogram_transform)
-    augmentation_transform = get_augmentation(device=device).to(device)
+    if config.exp_name == 'debug':
+        augmentation_transform = None
+        augmentation_transform_post = None
+    else:
+        augmentation_transform = get_augmentation(device=device).to(device)
+        augmentation_transform_post = get_audiomentations().to(device)
     print(augmentation_transform)
-    augmentation_transform_post = get_audiomentations().to(device)
     print(augmentation_transform)
 
     # Initial loss:
@@ -372,11 +378,16 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
 
             # Split each wav into chunks and process them
             audio = audio_padding['padder'](audio)
-            audio_chunks = audio.unfold(dimension=1, size=audio_padding['chunk_size'],
-                                        step=audio_padding['hop_size']).permute((1, 0, 2))
-            labels = labels_padding['padder'](target)
-            labels_chunks = labels.unfold(dimension=-1, size=labels_padding['chunk_size'],
-                                          step=labels_padding['hop_size']).permute((2, 0, 1, 3))
+            audio_chunks = audio.unfold(dimension=1, size=audio_padding['chunk_size'], step=audio_padding['hop_size']).permute((1, 0, 2))
+
+            if config.dataset_multi_track:
+                labels = labels_padding['padder'](target.permute(1,2,3,0))
+                labels_chunks = labels.unfold(dimension=-1, size=labels_padding['chunk_size'], step=labels_padding['hop_size'])
+                labels_chunks = labels_chunks.permute((3, 4, 0, 1, 2))
+            else:
+                labels = labels_padding['padder'](target)
+                labels_chunks = labels.unfold(dimension=-1, size=labels_padding['chunk_size'], step=labels_padding['hop_size'])
+                labels_chunks = labels_chunks.permute((2, 0, 1, 3))
 
             full_output = []
             full_loss = []
@@ -390,12 +401,18 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 full_loss.append(loss)
 
             # Concatenate chunks across timesteps into final predictions
-            output = torch.concat(full_output, dim=-1)
+            if config.dataset_multi_track:
+                output = torch.concat(full_output, dim=-2)
+            else:
+                output = torch.concat(full_output, dim=-1)
 
             # Apply detection threshold based on vector norm
-            norms = torch.linalg.vector_norm(output, ord=2, dim=-3, keepdims=True)
-            norms = (norms < detection_threshold).repeat(1, output.shape[-3], 1, 1)
-            output[norms] = 0.0
+            if config.dataset_multi_track:
+                pass
+            else:
+                norms = torch.linalg.vector_norm(output, ord=2, dim=-3, keepdims=True)
+                norms = (norms < detection_threshold).repeat(1, output.shape[-3], 1, 1)
+                output[norms] = 0.0
             loss = torch.tensor([x.item() for x in full_loss]).mean()
 
             # Useful fo debug:
@@ -403,11 +420,14 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             #target.detach().cpu().numpy()[0]
 
             # Downsample over frames:
-            output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
+            if config.dataset_multi_track:
+                output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='area').permute(0, 2, 1)
+            else:
+                output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
 
-            # I think the baseline code needs this in [batch, frames, classes*coords]
-            output = output.permute([0, 3, 1, 2])
-            output = output.flatten(2, 3)
+                # I think the baseline code needs this in [batch, frames, classes*coords]
+                output = output.permute([0, 3, 1, 2])
+                output = output.flatten(2, 3)
 
             if config['dataset_multi_track'] is True:
                 sed_pred0, doa_pred0, sed_pred1, doa_pred1, sed_pred2, doa_pred2 = get_multi_accdoa_labels(
@@ -519,6 +539,14 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                             output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt],
                                                            doa_pred_fc[class_cnt + config['unique_classes']],
                                                            doa_pred_fc[class_cnt + 2 * config['unique_classes']]])
+                output_dict_polar = {}
+                for k, v in output_dict.items():
+                    ss = []
+                    for this_item in v:
+                        tmp = utils.cart2sph(this_item[-3], this_item[-2], this_item[-1])
+                        ss.append([this_item[0], *tmp])
+                    output_dict_polar[k] = ss
+                write_output_format_file(output_file, output_dict_polar, use_cartesian=False)
             else:
                 for frame_cnt in range(sed_pred.shape[0]):
                     for class_cnt in range(sed_pred.shape[1]):
@@ -534,7 +562,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                             #                                   class_cnt + config['unique_classes']],
                             #                               doa_pred[frame_cnt][
                             #                                   class_cnt + 2 * config['unique_classes']]])
-            write_output_format_file(output_file, output_dict, use_cartesian=False)
+                write_output_format_file(output_file, output_dict, use_cartesian=False)
 
             test_loss += loss.item()
             nb_test_batches += 1

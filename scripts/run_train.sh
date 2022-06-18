@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #SBATCH --gres=gpu:1
-###SBATCH --constraint=volta|ampere
+#SBATCH --constraint=volta|ampere
 #SBATCH --cpus-per-task=6
 #SBATCH --mem 90G
 ##SBATCH --time 0-3:50:00
-#SBATCH --time 0-10:00:00
+#SBATCH --time 0-16:00:00
 ##SBATCH --time 0-00:30:00
 #SBATCH -o "slurm/train_%j.out"
 
