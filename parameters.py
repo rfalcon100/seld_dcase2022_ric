@@ -72,10 +72,15 @@ def get_parameters():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('--exp_name', type=str, default='debug', help="Optional experiment name.")
-    parser.add_argument('--mode', type=str, default='train', help='train or eval')
+    parser.add_argument('--mode', type=str, default='train', help='train or eval', choices=['train', 'valid', 'eval'])
     parser.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
     parser.add_argument('--num_workers', type=int, default=0, help='Num workers for dataloader.')
     parser.add_argument('--detection_threshold', type=float, default=0.4, help='Threshold for detecting events during evaluation.')
+
+    # Model arguments
+    parser.add_argument('--model', type=str, default='crnn10', help='Model to sue')
+    parser.add_argument('--model_features_transform', type=str, default='stft_iv', help='Features transform to use in the model')
+    parser.add_argument('--model_augmentation', action="store_true", help='Enable data augmentation in audio domain')
 
     # Dataset arguments
     parser.add_argument('--dataset_chunk_size_seconds', type=float, default=2.55, help='Chunk size of the input audio, in seconds. For example 1.27, or 2.55.')
@@ -89,7 +94,7 @@ def get_parameters():
         'job_id': config.job_id,
         'mode': config.mode,
         'num_iters': 200000,  # debug 10000
-        'batch_size': 32,  # debug 1
+        'batch_size': 32,  # debug 2
         'num_workers': config.num_workers,
         'print_every': 50,
         'logging_interval': 10000,  # debug 100 or 50
@@ -97,26 +102,30 @@ def get_parameters():
         'lr_decay_rate': 0.9,
         'lr_patience_times': 3,
         'lr_min': 1e-7,  # should be 1e-7 when using scheduler
-        'model': 'crnn10',
+        'model': config.model,
+        'model_features_transform': config.model_features_transform,
+        'model_augmentation': config.model_augmentation,
         'model_normalization': 'batchnorm',
         'model_loss_fn': 'mse',
-        'input_shape': [7, 96, 256],
+        #'input_shape': [7, 96, 256],
+        'input_shape': [4, 144000],
         'output_shape': [3, 12, 256],
         'logging_dir': './logging',
-        'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-                         '/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim'],
-        'dataset_list_train': ['dcase2022_devtrain_all.txt',
-                               'dcase2022_sim_all.txt'],
-        #'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022'],
-        #'dataset_list_train': ['dcase2022_devtrain_debug.txt'],
+        #'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+        #                 '/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim'],
+        #'dataset_list_train': ['dcase2022_devtrain_all.txt',
+        #                       'dcase2022_sim_all.txt'],
+        'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022'],
+        'dataset_list_train': ['dcase2022_devtrain_debug.txt'],
         'dataset_root_valid': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
         'dataset_list_valid': 'dcase2022_devtest_all.txt',
         'dataset_root_eval': config.dataset_root_eval,
         'dataset_list_eval': config.dataset_list_eval,
         'dataset_trim_wavs':-1,
         'dataset_chunk_size': math.ceil(24000 * config.dataset_chunk_size_seconds),
+        'dataset_chunk_size_seconds': config.dataset_chunk_size_seconds,
         'dataset_chunk_mode': 'random',
-        'dataset_multi_track': True,
+        'dataset_multi_track': False,
         'thresh_unify': 15,
         'use_mixup': True,
         'mixup_alpha': 0.2,

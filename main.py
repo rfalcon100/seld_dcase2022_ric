@@ -40,7 +40,7 @@ def get_dataset(config):
                                          trim_wavs=config.dataset_trim_wavs,
                                          multi_track=config.dataset_multi_track,
                                          num_classes=config.unique_classes,
-                                         labels_backend='baseline',
+                                         labels_backend='sony',
                                          return_fname=False)
         datasets_train.append(dataset_tmp)
     dataset_train = torch.utils.data.ConcatDataset(datasets_train)
@@ -54,7 +54,7 @@ def get_dataset(config):
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
-                                       labels_backend='baseline',
+                                       labels_backend='sony',
                                        return_fname=True)
 
     return dataloader_train, dataset_valid
@@ -129,33 +129,55 @@ def main():
     # Solver
     solver = Solver(config=config, tensorboard_writer=writer)
 
-    spectrogram_transform = nn.Sequential(
+    features_transform = nn.Sequential(
         torchaudio.transforms.MelSpectrogram(sample_rate=24000,
                                              n_fft=512,
                                              hop_length=240,
                                              n_mels=96),
         torchaudio.transforms.AmplitudeToDB()).to(device)
 
-    spectrogram_transform = nn.Sequential(
+    features_transform = nn.Sequential(
         torchaudio.transforms.Spectrogram(n_fft=512,
                                          hop_length=240),
         torchaudio.transforms.AmplitudeToDB()).to(device)
 
     # Select features and augmentation
-    spectrogram_transform = my_feature().to(device)  # mag STFT with intensity vectors
-    print(spectrogram_transform)
-    if config.exp_name == 'debug':
+    if config.model_features_transform == 'stft_iv':
+        features_transform = my_feature().to(device)  # mag STFT with intensity vectors
+    else:
+        features_transform = None
+    print(features_transform)
+
+    if config.exp_name == 'debug' or not config.model_augmentation:
         augmentation_transform = None
         augmentation_transform_post = None
     else:
         augmentation_transform = get_augmentation(device=device).to(device)
         augmentation_transform_post = get_audiomentations().to(device)
+
+    if 'samplecnn' in config.model:
+        class t_transform(nn.Sequential):
+            def __int__(self):
+                super().__init__()
+            def forward(self, input):
+                out = nn.functional.interpolate(input, scale_factor=(1, 0.1), mode='area')
+                return out
+        target_transform = t_transform()
+    else:
+        target_transform = None
     print(augmentation_transform)
     print(augmentation_transform)
 
     # Initial loss:
     x, target = dataloader_train.dataset[0]
-    x, target = spectrogram_transform(x.unsqueeze(0).to(device)), target[None, ...].to(device)
+    if features_transform is not None:
+        x = features_transform(x.unsqueeze(0).to(device))
+    else:
+        x = x[None, ...].to(device)
+    if target_transform is not None:
+        target = target_transform(target[None, ...].to(device))
+    else:
+        target = target[None, ...].to(device)
     solver.predictor.eval()
     out = solver.predictor(x)
     loss = solver.loss_fns[solver.loss_names[0]](out, target)
@@ -172,15 +194,15 @@ def main():
         start_step_time = time.time()
         for data in islice(dataloader_train, config.num_iters + 1):
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
-                                         device=device, features_transform=spectrogram_transform, augmentation_transform=augmentation_transform,
-                                         augmentation_transform_post=augmentation_transform_post, solver=solver, writer=writer)
+                                         device=device, features_transform=features_transform, augmentation_transform=augmentation_transform,
+                                         augmentation_transform_post=augmentation_transform_post, target_transform=target_transform, solver=solver, writer=writer)
 
             if iter_idx % config.print_every == 0 and iter_idx > 0:
                 start_step_time = time.time()
 
             if iter_idx % config.logging_interval == 0 and iter_idx > 0:
                 seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
-                                                              device=device, features_transform=spectrogram_transform,
+                                                              device=device, features_transform=features_transform, target_transform=target_transform,
                                                               solver=solver, writer=writer,
                                                               dcase_output_folder=config['directory_output_results'])
                 curr_time = time.time() - start_time
@@ -210,8 +232,14 @@ def main():
 
     elif config.mode == 'eval':
         checkpoint_root = '/m/triton/scratch/work/falconr1/dcase2022/seld_dcase2022_ric/logging'
-        checkpoints_path = ['dcase22_plus_dcase22-sim_w-aug-5405063_n-work:0_crnn10_batchnorm_30480__2022-06-15-195028']
-        checkpoints_name = 'model_step_90000.pth'
+        #checkpoints_path = ['dcase22_plus_dcase22-sim_w-aug-5405063_n-work:0_crnn10_batchnorm_30480__2022-06-15-195028']
+        #checkpoints_name = 'model_step_90000.pth'
+        checkpoints_path = ['dcase2022_plus_dcase22-sim_w-aug_mixup_b32_sample-gru-5441557_n-work:0_samplecnn_batchnorm_144000__2022-06-19-001924']
+        checkpoints_name = 'model_step_190000.pth'
+        #checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255_b32-5431498_n-work:0_crnn10_batchnorm_61200__2022-06-17-125119']
+        #checkpoints_name = 'model_step_190000.pth'
+        #checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255_long-5423265_n-work:0_crnn10_batchnorm_61200__2022-06-16-150605']
+        #checkpoints_name = 'model_step_80000.pth'
 
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
         solver = Solver(config=config, model_checkpoint=checkpoint)
@@ -226,12 +254,19 @@ def main():
                                           return_fname=True,
                                           ignore_labels=True)
 
-        evaluation(config, dataset_eval, solver, spectrogram_transform, dcase_output_folder=config['directory_output_results'],
+        evaluation(config, dataset_eval, solver, features_transform,
+                   target_transform=target_transform, dcase_output_folder=config['directory_output_results'],
                    device=device, detection_threshold=config.detection_threshold)
 
     elif config.mode == 'valid':  # Validation for those where I missed the performance
         checkpoint_root = '/m/triton/scratch/work/falconr1/dcase2022/seld_dcase2022_ric/logging'
-        checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255-5411345_n-work:0_crnn10_batchnorm_61200__2022-06-15-222729']
+        #checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255-5411345_n-work:0_crnn10_batchnorm_61200__2022-06-15-222729']
+        #checkpoints_name = 'model_step_80000.pth'
+        #checkpoints_path = ['dcase2022_plus_dcase22-sim_w-aug_mixup_b32_sample-gru-5441557_n-work:0_samplecnn_batchnorm_144000__2022-06-19-001924']
+        #checkpoints_name = 'model_step_190000.pth'
+        checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255_b32-5431498_n-work:0_crnn10_batchnorm_61200__2022-06-17-125119']
+        checkpoints_name = 'model_step_190000.pth'
+        checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255_long-5423265_n-work:0_crnn10_batchnorm_61200__2022-06-16-150605']
         checkpoints_name = 'model_step_80000.pth'
 
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
@@ -248,8 +283,8 @@ def main():
                                           ignore_labels=False)
 
         seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
-                                                      device=device, features_transform=spectrogram_transform,
-                                                      solver=solver, writer=None,
+                                                      device=device, features_transform=features_transform,
+                                                      target_transform=target_transform, solver=solver, writer=None,
                                                       dcase_output_folder=config['directory_output_results'],
                                                       detection_threshold=config['detection_threshold'])
         curr_time = time.time() - start_time
@@ -273,8 +308,9 @@ def main():
                                                                              seld_metrics_class_wise[4][cls_cnt]))
         print('================================================ \n')
 
-def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: nn.Sequential,
-                    augmentation_transform: [nn.Sequential, None], augmentation_transform_post: [nn.Sequential, None], solver, writer):
+def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: [nn.Sequential, None],
+                    augmentation_transform: [nn.Sequential, None], augmentation_transform_post: [nn.Sequential, None],
+                    target_transform: [nn.Sequential, None], solver, writer):
     # Training iteration
     x, target = data
     x, target = x.to(device), target.to(device)
@@ -287,8 +323,10 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
         x = augmentation_transform(x)
     if augmentation_transform_post is not None:
         x = augmentation_transform(x)
-    x = features_transform(x)
-
+    if features_transform is not None:
+        x = features_transform(x)
+    if target_transform is not None:
+        target = target_transform(target)
     solver.set_input(x, target)
     solver.train_step()
 
@@ -340,9 +378,9 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
                 fixed_error_sph[:, cc, ::] = tmp.transpose(1, 0)
 
             # Plot
-            fig = plots.plot_labels(fixed_output_sph, savefig=False, plot_cartesian=False)
+            fig = plots.plot_labels(fixed_output_sph, savefig=False, plot_cartesian=False, title='Output')
             writer.add_figure('fixed_output/train', fig, iter_idx)
-            fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False)
+            fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False, title='Target')
             writer.add_figure('fixed_label/train', fig, None)
             fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
             writer.add_figure('fixed_error/train', fig, iter_idx)
@@ -352,7 +390,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
 
     return train_loss.item()
 
-def validation_iteration(config, dataset, iter_idx, solver, features_transform, dcase_output_folder, device, writer, detection_threshold=0.5):
+def validation_iteration(config, dataset, iter_idx, solver, features_transform, target_transform: [nn.Sequential, None], dcase_output_folder, device, writer, detection_threshold=0.5):
     # Adapted from the official baseline
     nb_test_batches, test_loss = 0, 0.
     model = solver.predictor
@@ -394,7 +432,10 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             tmp = torch.utils.data.TensorDataset(audio_chunks, labels_chunks)
             loader = DataLoader(tmp, batch_size=1, shuffle=False, drop_last=False)  # Loader per wav to get batches
             for ctr, (audio, labels) in enumerate(loader):
-                audio = features_transform(audio)
+                if features_transform is not None:
+                    audio = features_transform(audio)
+                if target_transform is not None:
+                    labels = target_transform(labels)
                 output = model(audio)
                 loss = solver.loss_fns[solver.loss_names[0]](output, labels)
                 full_output.append(output)
@@ -417,13 +458,16 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
 
             # Useful fo debug:
             #output.detach().cpu().numpy()[0, 0]
+            #plots.plot_labels(labels.detach().cpu().numpy()[0])
             #target.detach().cpu().numpy()[0]
 
             # Downsample over frames:
             if config.dataset_multi_track:
-                output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='area').permute(0, 2, 1)
+                if target_transform is None:
+                    output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='area').permute(0, 2, 1)
             else:
-                output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
+                if target_transform is None:
+                    output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
 
                 # I think the baseline code needs this in [batch, frames, classes*coords]
                 output = output.permute([0, 3, 1, 2])
@@ -581,7 +625,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
 
     return all_test_metric, test_loss
 
-def evaluation(config, dataset, solver, features_transform, dcase_output_folder, device, detection_threshold=0.4):
+def evaluation(config, dataset, solver, features_transform, target_transform: [nn.Sequential, None], dcase_output_folder, device, detection_threshold=0.4):
     # Adapted from the official baseline
     # This is basically the same as validaiton, but we dont compute losses or metrics because there are no labels
     nb_test_batches, test_loss = 0, 0.
@@ -614,24 +658,37 @@ def evaluation(config, dataset, solver, features_transform, dcase_output_folder,
             tmp = torch.utils.data.TensorDataset(audio_chunks)
             loader = DataLoader(tmp, batch_size=1, shuffle=False, drop_last=False)  # Loader per wav to get batches
             for ctr, (audio) in enumerate(loader):
-                audio = features_transform(audio[0])
+                audio = audio[0]
+                if features_transform is not None:
+                    audio = features_transform(audio)
                 output = model(audio)
                 full_output.append(output)
 
             # Concatenate chunks across timesteps into final predictions
-            output = torch.concat(full_output, dim=-1)
+            if config.dataset_multi_track:
+                output = torch.concat(full_output, dim=-2)
+            else:
+                output = torch.concat(full_output, dim=-1)
 
             # Apply detection threshold based on vector norm
-            norms = torch.linalg.vector_norm(output, ord=2, dim=-3, keepdims=True)
-            norms = (norms < detection_threshold).repeat(1, output.shape[-3], 1, 1)
-            output[norms] = 0.0
+            if config.dataset_multi_track:
+                pass
+            else:
+                norms = torch.linalg.vector_norm(output, ord=2, dim=-3, keepdims=True)
+                norms = (norms < detection_threshold).repeat(1, output.shape[-3], 1, 1)
+                output[norms] = 0.0
 
             # Downsample over frames:
-            output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
+            if config.dataset_multi_track:
+                if target_transform is None:
+                    output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='area').permute(0, 2, 1)
+            else:
+                if target_transform is None:
+                    output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
 
-            # I think the baseline code needs this in [batch, frames, classes*coords]
-            output = output.permute([0, 3, 1, 2])
-            output = output.flatten(2, 3)
+                # I think the baseline code needs this in [batch, frames, classes*coords]
+                output = output.permute([0, 3, 1, 2])
+                output = output.flatten(2, 3)
 
             if config['dataset_multi_track'] is True:
                 sed_pred0, doa_pred0, sed_pred1, doa_pred1, sed_pred2, doa_pred2 = get_multi_accdoa_labels(
@@ -758,7 +815,7 @@ def evaluation(config, dataset, solver, features_transform, dcase_output_folder,
                             #                                   class_cnt + config['unique_classes']],
                             #                               doa_pred[frame_cnt][
                             #                                   class_cnt + 2 * config['unique_classes']]])
-            write_output_format_file(output_file, output_dict, use_cartesian=False)
+            write_output_format_file(output_file, output_dict, use_cartesian=False, ignore_src_id=True)
 
     print('Finished evaluation')
 

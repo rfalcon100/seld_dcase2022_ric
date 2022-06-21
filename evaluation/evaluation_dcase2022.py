@@ -45,7 +45,7 @@ def determine_similar_location(sed_pred0, sed_pred1, doa_pred0, doa_pred1, class
     else:
         return 0
 
-def write_output_format_file(_output_format_file, _output_format_dict, use_cartesian=True):
+def write_output_format_file(_output_format_file, _output_format_dict, use_cartesian=True, ignore_src_id=False):
     """
     Writes DCASE output format csv file, given output format dictionary
 
@@ -61,8 +61,12 @@ def write_output_format_file(_output_format_file, _output_format_dict, use_carte
                 # Write Cartesian format output. Since baseline does not estimate track count we use a fixed value.
                 _fid.write('{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3])))
             else:
-                _fid.write(
-                    '{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2])))
+                if ignore_src_id:
+                    _fid.write(
+                        '{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), round(_value[1]), round(_value[2])))
+                else:
+                    _fid.write(
+                        '{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, round(_value[1]), round(_value[2])))
     _fid.close()
 
 def all_seld_eval(args, directory_root, fnames, pred_directory, result_path=None):

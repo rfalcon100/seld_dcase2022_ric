@@ -575,7 +575,7 @@ def _get_padders(chunk_size_seconds: float = 1.27,
     audio_chunk_size = math.ceil(fs * chunk_size_seconds)
     audio_pad_size = math.ceil(audio_full_size / audio_chunk_size) + math.ceil(audio_fs / labels_fs / overlap)
     audio_padder = nn.ConstantPad1d(padding=(0, audio_pad_size), value=0.0)
-    audio_step_size = int(audio_chunk_size * overlap)
+    audio_step_size = math.floor(audio_chunk_size * overlap)
 
     # Labels:
     labels_fs = labels_fs  # 100 --> 10 ms
@@ -583,7 +583,7 @@ def _get_padders(chunk_size_seconds: float = 1.27,
     labels_chunk_size = math.ceil(labels_fs * chunk_size_seconds) + 1
     labels_pad_size = math.ceil(labels_full_size / labels_chunk_size) + 1
     labels_padder = nn.ConstantPad2d(padding=(0, labels_pad_size, 0, 0), value=0.0)
-    labels_step_size = int(labels_chunk_size * overlap)
+    labels_step_size = math.floor(labels_chunk_size * overlap)
 
     audio_padding = {'padder': audio_padder,
                      'chunk_size': audio_chunk_size,
@@ -631,7 +631,7 @@ def test_validation_clean():
 
         audio_padding, labels_padding = _get_padders(chunk_size_seconds=1.27,
                                                      duration_seconds=math.floor(duration),
-                                                     overlap=1,
+                                                     overlap=1,   # Other values e.g. 32/128 are ok,
                                                      audio_fs=24000,
                                                      labels_fs=100)
 

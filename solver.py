@@ -4,10 +4,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import math
 from torchsummary import summary
 
 from utils import GradualWarmupScheduler, grad_norm, mixup_data, mixup_criterion
 from models.crnn import CRNN10, CRNN
+from models.samplecnn_raw import SampleCNN, SampleCNN_GRU
 from models.losses import MSELoss_ADPIT
 
 
@@ -104,10 +106,18 @@ class Solver(object):
 
 
     def build_predictor(self):
-        predictor = CRNN10(class_num=self.config.output_shape[1],
-                           out_channels=self.config.output_shape[0],
-                           in_channels=self.config.input_shape[0],
-                           multi_track=self.config.dataset_multi_track)
+        if self.config.model == 'crnn10':
+            predictor = CRNN10(class_num=self.config.output_shape[1],
+                               out_channels=self.config.output_shape[0],
+                               in_channels=self.config.input_shape[0],
+                               multi_track=self.config.dataset_multi_track)
+        elif self.config.model == 'samplecnn':
+            predictor = SampleCNN(output_timesteps=math.ceil(self.config.dataset_chunk_size_seconds * 10),
+                                  num_class=self.config.unique_classes)
+        elif self.config.model == 'samplecnn_gru':
+            predictor = SampleCNN_GRU(output_timesteps=math.ceil(self.config.dataset_chunk_size_seconds * 10),
+                                      num_class=self.config.unique_classes)
+
         return predictor.to(self.device)
 
     def _get_loss_fn(self) -> torch.nn.Module:

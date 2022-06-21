@@ -73,7 +73,7 @@ results:
 
     # Overall score
     overall:
-      ER_20: 0.81
-      F_20: 14.0
-      LE_CD: 41.4
-      LR_CD: 32.0
+      ER_20: 0.74
+      F_20: 23.0
+      LE_CD: 27.4
+      LR_CD: 45.0

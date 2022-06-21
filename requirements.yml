@@ -22,10 +22,10 @@ dependencies:
   - brotlipy=0.7.0=py37h27cfd23_1003
   - bzip2=1.0.8=h7b6447c_0
   - c-ares=1.18.1=h7f8727e_0
-  - ca-certificates=2022.5.18.1=ha878542_0
+  - ca-certificates=2022.6.15=ha878542_0
   - cached-property=1.5.2=py_0
   - cachetools=4.2.2=pyhd3eb1b0_0
-  - certifi=2022.5.18.1=py37h89c1867_0
+  - certifi=2022.6.15=py37h89c1867_0
   - cffi=1.15.0=py37hd667e15_1
   - chardet=4.0.0=py37h06a4308_1003
   - charset-normalizer=2.0.4=pyhd3eb1b0_0
@@ -39,6 +39,7 @@ dependencies:
   - dbus=1.13.18=hb2f20db_0
   - decorator=5.1.1=pyhd3eb1b0_0
   - easydict=1.9=py_0
+  - einops=0.4.1=pyhd8ed1ab_0
   - expat=2.4.4=h295c915_0
   - ffmpeg=4.3=hf484d3e_0
   - fontconfig=2.13.1=h6c09931_0

@@ -41,14 +41,14 @@ system:
     input_sampling_rate: 24kHz          	#
 
     # Acoustic representation
-    acoustic_features: magnitude spectra, intensity vector   # e.g one or multiple [phase and magnitude spectra, mel spectra, GCC-PHAT, TDOA, intensity vector ...]
+    acoustic_features: foa raw waveform   # e.g one or multiple [phase and magnitude spectra, mel spectra, GCC-PHAT, TDOA, intensity vector ...]
 
     # Data augmentation methods
     data_augmentation: [directional loudness, random equalization, random gain, pitch shift, polarity inversion, colored noise, spliceout]            	# [time stretching, block mixing, pitch shifting, ...]
 
     # Machine learning
     # In case of using ensemble methods, please specify all methods used (comma separated list).
-    machine_learning_method: CRNN          	# e.g one or multiple [GMM, HMM, SVM, kNN, MLP, CNN, RNN, CRNN, NMF, random forest, ensemble, ...]
+    machine_learning_method: SampleCNN          	# e.g one or multiple [GMM, HMM, SVM, kNN, MLP, CNN, RNN, CRNN, NMF, random forest, ensemble, ...]
 
 
   # System complexity, meta data provided here will be used to evaluate
@@ -60,7 +60,7 @@ system:
     # For other than neural networks, if parameter count information is not directly available,
     # try estimating the count as accurately as possible.
     # In case of ensemble approaches, add up parameters for all subsystems.
-    total_parameters: 4709607
+    total_parameters: 713511
 
   # URL to the source code of the system [optional]
   source_code: https://github.com/rfalcon100/seld_dcase2022_ric
@@ -73,7 +73,7 @@ results:
 
     # Overall score
     overall:
-      ER_20: 0.79
-      F_20: 13.0
-      LE_CD: 53.3
-      LR_CD: 24.0
+      ER_20: 0.75
+      F_20: 19.0
+      LE_CD: 49.3
+      LR_CD: 38.0

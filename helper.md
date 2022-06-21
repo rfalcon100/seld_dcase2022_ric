@@ -68,3 +68,26 @@ timer
 loss_train
 loss_valid
 metrics_valid
+
+
+## DCASE re submission:
+```bash
+--model
+samplecnn_gru
+--dataset_chunk_size_seconds
+6
+--model_features_transform
+none
+--mode
+valid
+```
+
+
+--model
+crnn
+--dataset_chunk_size_seconds
+2.55
+--model_features_transform
+stft_iv
+--mode
+valid

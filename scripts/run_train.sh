@@ -32,7 +32,8 @@ which python
 echo "init done"
 
 echo "Start of job"
-srun python main.py --exp_name $exp_n --num_workers $num_w --job_id $SLURM_JOBID --mode "train" --dataset_chunk_size_seconds 2.55
+#srun python main.py --exp_name $exp_n --num_workers $num_w --job_id $SLURM_JOBID --mode "train" --dataset_chunk_size_seconds 2.55
+srun python main.py --exp_name $exp_n --num_workers $num_w --job_id $SLURM_JOBID --mode "train" --dataset_chunk_size_seconds 6 --model "samplecnn" --model_features_transform "none" --model_augmentation
 echo "End of job"
 
 conda deactivate
