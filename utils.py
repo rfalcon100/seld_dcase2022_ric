@@ -197,6 +197,39 @@ def get_rotation_matrix(rotation_phi, rotation_theta, rotation_psi) -> torch.Ten
     R = torch.matmul(torch.matmul(roll, pitch), yaw)
     return R
 
+def load_SOFA(order, filename='data/HRIR_L2354.sofa', url='http://sofacoustics.org/data/database/thk/HRIR_L2354.sofa'):
+    """ Returns the selected HRTF sofa file encoded in spherical harmonics domain 
+    This downloads the sofa file is needed. 
+    """
+    from os.path import exists
+    import wget
+    if not exists(filename):
+        response = wget.download(url, filename)
+    try:
+        irs, fs = spa.IO.sofa_to_sh(filename, order, 'real')
+    except:
+        raise ValueError('Sofa file not found')
+    return irs, fs
+
+def sh_sig_to_binaural(sig: torch.Tensor, device, order: int = 1, sofa='data/HRIR_L2354.sofa', do_normalize=True):
+    """ Binauralizes the input sh signal by doing a 1d convolution with an HRTF in sh domain """
+    brir, fs = load_SOFA(order=order, filename=sofa)
+    brir = torch.from_numpy(brir).float() # [2, (N+1)**2, brir_length]  
+    assert isinstance(sig, torch.Tensor), 'ERROR: Signal to binaualize should be a torch.Tensor'
+    assert sig.shape[-2] == brir.shape[-2], 'ERROR: Signal and HRTF should have the same number of channels, i.e. order'
+    
+    binaural_convolver = nn.Conv1d(in_channels=sig.shape[-2], out_channels=brir.shape[-3],
+                   kernel_size=(brir.shape[-1]), stride=1, bias=False,
+                   padding='same', groups=1, device=device)
+    binaural_convolver.weight.data[..., :] = torch.flip(brir, dims=[-1])  # Flip along time axis because nn.Conv1d is correlation, not conv
+
+    with torch.no_grad():
+        sig_binaural = binaural_convolver(sig[None,...].float())
+        if do_normalize:
+            sig_binaural = sig_binaural / sig_binaural.abs().max()
+    
+    return sig_binaural
+
 def colat2ele(colat: Union[float, torch.Tensor]) -> torch.Tensor:
     """Transforms colatitude to elevation (latitude). In radians.
 

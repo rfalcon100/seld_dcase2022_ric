@@ -94,7 +94,7 @@ def get_parameters():
         'job_id': config.job_id,
         'mode': config.mode,
         'num_iters': 200000,  # debug 10000
-        'batch_size': 32,  # debug 2
+        'batch_size': 2,  # debug 2
         'num_workers': config.num_workers,
         'print_every': 50,
         'logging_interval': 10000,  # debug 100 or 50

@@ -1,0 +1,2 @@
+./data_dcase2022/foa_dev/dev-train-tau/fold3_room4_mix004.wav
+./data_dcase2022/foa_dev/dev-train-sony/fold3_room21_mix013.wav

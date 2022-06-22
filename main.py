@@ -93,20 +93,22 @@ def get_augmentation(device='cpu'):
 
     return transform
 
-def get_audiomentations():
+def get_audiomentations(p=0.5, fs=24000):
     from augmentation.spliceout import SpliceOut
+    from augmentation.MyBandStopFilter import BandStopFilter
+    from augmentation.MyBandPassFilter import BandPassFilter
     # Initialize augmentation callable
     apply_augmentation = t_aug.Compose(
         transforms=[
-            t_aug.Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=0.5, mode='per_example', p_mode='per_example'),
-            t_aug.PolarityInversion(p=0.5, mode='per_example', p_mode='per_example'),
-            t_aug.PitchShift(p=0.5, min_transpose_semitones=-1.5, max_transpose_semitones=1.5, sample_rate=24000, mode='per_example', p_mode='per_example'),
-            t_aug.AddColoredNoise(p=0.5, min_snr_in_db=6.0, max_snr_in_db=30.0, min_f_decay=-2.0, max_f_decay=2.0, mode='per_example', p_mode='per_example'),
-            t_aug.BandStopFilter(p=0.5, min_center_frequency=400, max_center_frequency=4000, min_bandwidth_fraction=0.25, max_bandwidth_fraction=1.99, sample_rate=24000, p_mode='per_example'),
-            t_aug.LowPassFilter(p=0.5,  min_cutoff_freq=1000, max_cutoff_freq=7500, sample_rate=24000, p_mode='per_example'),
-            t_aug.HighPassFilter(p=0.5, min_cutoff_freq=100, max_cutoff_freq=2000, sample_rate=24000, p_mode='per_example'),
-            t_aug.BandPassFilter(p=0.5, min_center_frequency=400, max_center_frequency=4000, min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.99, sample_rate=24000, p_mode='per_example'),
-            SpliceOut(p=0.5, num_time_intervals=8, max_width=400, p_mode='per_example')
+            t_aug.Gain(p=p, min_gain_in_db=-15.0, max_gain_in_db=5.0, mode='per_example', p_mode='per_example'),
+            t_aug.PolarityInversion(p=p, mode='per_example', p_mode='per_example'),
+            t_aug.PitchShift(p=p, min_transpose_semitones=-1.5, max_transpose_semitones=1.5, sample_rate=fs, mode='per_example', p_mode='per_example'),
+            t_aug.AddColoredNoise(p=p, min_snr_in_db=6.0, max_snr_in_db=30.0, min_f_decay=-2.0, max_f_decay=2.0, sample_rate=fs, mode='per_example', p_mode='per_example'),
+            BandStopFilter(p=p, min_center_frequency=400, max_center_frequency=4000, min_bandwidth_fraction=0.25, max_bandwidth_fraction=1.99, sample_rate=fs, p_mode='per_example'),
+            t_aug.LowPassFilter(p=p,  min_cutoff_freq=1000, max_cutoff_freq=7500, sample_rate=fs, p_mode='per_example'),
+            t_aug.HighPassFilter(p=p, min_cutoff_freq=100, max_cutoff_freq=2000, sample_rate=fs, p_mode='per_example'),
+            BandPassFilter(p=p, min_center_frequency=400, max_center_frequency=4000, min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.99, sample_rate=fs, p_mode='per_example'),
+            #SpliceOut(p=p, num_time_intervals=8, max_width=400, sample_rate=fs, p_mode='per_example')
         ]
     )
 
@@ -148,7 +150,7 @@ def main():
         features_transform = None
     print(features_transform)
 
-    if config.exp_name == 'debug' or not config.model_augmentation:
+    if config.exp_name == 'no_aug' or not config.model_augmentation:
         augmentation_transform = None
         augmentation_transform_post = None
     else:
@@ -322,7 +324,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             augmentation_transform.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
         x = augmentation_transform(x)
     if augmentation_transform_post is not None:
-        x = augmentation_transform(x)
+        x = augmentation_transform_post(x)
     if features_transform is not None:
         x = features_transform(x)
     if target_transform is not None:
