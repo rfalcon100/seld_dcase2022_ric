@@ -2,5 +2,5 @@
 	path = spaudiopy
 	url = https://github.com/chris-hld/spaudiopy.git
 [submodule "torch-audiomentations"]
-	path = torch-audiomentations
+	path = torch_audiomentations
 	url = https://github.com/rfalcon100/torch-audiomentations.git
