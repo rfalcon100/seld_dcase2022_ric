@@ -320,7 +320,7 @@ def _random_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float, trim_wa
 
     # Now we do it in seconds
     if trim_wavs > 0:
-        star_min_sec, start_max_sec = 2, 2 + trim_wavs  # Hardcoded start at 2 seconds
+        star_min_sec, start_max_sec = 2, math.floor(trim_wavs - (chunk_size_audio/fs + 2))
     else:
         star_min_sec, start_max_sec = 0, math.floor(clip_length_seconds - chunk_size_audio/fs)
     start_sec = np.round(np.random.randint(star_min_sec,

@@ -216,7 +216,7 @@ def sh_sig_to_binaural(sig: torch.Tensor, device, order: int = 1, sofa='data/HRI
     brir, fs = load_SOFA(order=order, filename=sofa)
     brir = torch.from_numpy(brir).float() # [2, (N+1)**2, brir_length]  
     assert isinstance(sig, torch.Tensor), 'ERROR: Signal to binaualize should be a torch.Tensor'
-    assert sig.shape[-2] == brir.shape[-2], 'ERROR: Signal and HRTF should have the same number of channels, i.e. order'
+    assert sig.shape[-2] == brir.shape[-2], f'ERROR: Signal and HRTF should have the same number of channels, i.e. order. {sig.shape[-2]}, {brir.shape[-2]}'
     
     binaural_convolver = nn.Conv1d(in_channels=sig.shape[-2], out_channels=brir.shape[-3],
                    kernel_size=(brir.shape[-1]), stride=1, bias=False,

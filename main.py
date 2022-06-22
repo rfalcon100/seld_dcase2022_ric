@@ -7,7 +7,7 @@ import numpy as np
 import torchaudio
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-import torch_audiomentations as t_aug
+
 import os, shutil, math
 import yaml
 import time
@@ -23,6 +23,7 @@ from solver import Solver
 from feature import my_feature
 
 import augmentation.spatial_mixup as spm
+import torch_audiomentations as t_aug
 from parameters import get_parameters
 import utils
 import plots
@@ -114,6 +115,96 @@ def get_audiomentations(p=0.5, fs=24000):
 
     return apply_augmentation
 
+def get_audiomentations_fixed(fs=24000, p=0.5, n_aug_min=2, n_aug_max=4):
+    """
+    WARNING: Pitchshift sometimes messes up with the spatial characteristics, because it affects the phase weirdly.
+    """
+    mode = 'per_example'
+    p_mode = 'per_example'
+    apply_augmentation = t_aug.SomeOf((n_aug_min, n_aug_max),
+                                      transforms=[
+                                          t_aug.Gain(p=p, min_gain_in_db=-15.0, max_gain_in_db=6.0, mode=mode, p_mode=p_mode),
+                                          t_aug.PolarityInversion(p=p, mode=mode, p_mode=p_mode),
+                                          t_aug.PitchShift(p=p, min_transpose_semitones=-1.5, max_transpose_semitones=1.5, sample_rate=fs,
+                                                           mode=mode, p_mode=p_mode),
+                                          t_aug.AddColoredNoise(p=p, min_snr_in_db=2.0, max_snr_in_db=30.0, min_f_decay=-2.0, max_f_decay=2.0,
+                                                                sample_rate=fs, mode=mode, p_mode=p_mode),
+                                          t_aug.BandStopFilter(p=p, min_center_frequency=400, max_center_frequency=4000,
+                                                               min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.1, sample_rate=fs,
+                                                               p_mode=p_mode),
+                                          t_aug.LowPassFilter(p=p, min_cutoff_freq=1000, max_cutoff_freq=5000, sample_rate=fs,
+                                                              p_mode=p_mode),
+                                          t_aug.HighPassFilter(p=p, min_cutoff_freq=250, max_cutoff_freq=1500, sample_rate=fs,
+                                                               p_mode=p_mode),
+                                          t_aug.BandPassFilter(p=p, min_center_frequency=400, max_center_frequency=4000,
+                                                               min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.5, sample_rate=fs,
+                                                               p_mode=p_mode),
+                                          t_aug.SpliceOut(p=p, num_time_intervals=100, max_width=100, sample_rate=fs, p_mode=p_mode)
+                                      ]
+                                      )
+
+    class Limiter(nn.Sequential):
+        def __init__(self, threshold=1):
+            super().__init__()
+            self.threshold = threshold
+
+        def forward(self, x):
+            mask = torch.abs(x) > self.threshold
+            x[mask] = 1.0
+            return x
+
+class RandomAugmentations(nn.Sequential):
+    def __init__(self, fs=24000, p=1, p_comp=1, n_aug_min=2, n_aug_max=4, threshold_limiter=1):
+        super().__init__()
+        self.fs = fs
+        self.p = p
+        self.p_comp = p_comp
+        self.n_aug_min = n_aug_min
+        self.n_aug_max = n_aug_max
+        self.threshold_limiter = threshold_limiter
+        mode = 'per_example'  # for speed, we use batch processing
+        p_mode = 'per_example'
+
+        self.augmentations = t_aug.SomeOf((n_aug_min, n_aug_max), p=self.p_comp,
+                                      transforms=[
+                                          t_aug.Gain(p=p, min_gain_in_db=-15.0, max_gain_in_db=6.0, mode=mode, p_mode=p_mode),
+                                          t_aug.PolarityInversion(p=p, mode=mode, p_mode=p_mode),
+                                          #t_aug.PitchShift(p=p, min_transpose_semitones=-1.5, max_transpose_semitones=1.5, sample_rate=fs,
+                                          #                 mode=mode, p_mode=p_mode),
+                                          t_aug.AddColoredNoise(p=p, min_snr_in_db=2.0, max_snr_in_db=30.0, min_f_decay=-2.0, max_f_decay=2.0,
+                                                                sample_rate=fs, mode=mode, p_mode=p_mode),
+                                          t_aug.BandStopFilter(p=p, min_center_frequency=400, max_center_frequency=4000,
+                                                               min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.1, sample_rate=fs,
+                                                               p_mode=p_mode),
+                                          t_aug.LowPassFilter(p=p, min_cutoff_freq=1000, max_cutoff_freq=5000, sample_rate=fs,
+                                                              p_mode=p_mode),
+                                          t_aug.HighPassFilter(p=p, min_cutoff_freq=250, max_cutoff_freq=1500, sample_rate=fs,
+                                                               p_mode=p_mode),
+                                          t_aug.BandPassFilter(p=p, min_center_frequency=400, max_center_frequency=4000,
+                                                               min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.5, sample_rate=fs,
+                                                               p_mode=p_mode),
+                                          #t_aug.SpliceOut(p=p, num_time_intervals=100, max_width=100, sample_rate=fs, p_mode=p_mode)
+                                      ]
+                                      )
+
+    def forward(self, input):
+        do_reshape = False
+        if input.shape == 2:
+            do_reshape = True
+            input = input[None, ...]  #  audiomentations expects batches
+
+        # Augmentations
+        output = self.augmentations(input, sample_rate=self.fs)  # Returns ObjectDict
+        output = output['samples']
+
+        # Limiter
+        mask = torch.abs(output) > self.threshold_limiter
+        output[mask] = 1.0
+
+        if do_reshape:
+            output = output.squeeze(0)
+        return output
+
 def main():
     # Get config
     config = get_parameters()
@@ -155,7 +246,8 @@ def main():
         augmentation_transform_post = None
     else:
         augmentation_transform = get_augmentation(device=device).to(device)
-        augmentation_transform_post = get_audiomentations().to(device)
+        #augmentation_transform_post = get_audiomentations().to(device)
+        augmentation_transform_post = RandomAugmentations(p_comp=0.0).to(device)
 
     if 'samplecnn' in config.model:
         class t_transform(nn.Sequential):
@@ -168,7 +260,7 @@ def main():
     else:
         target_transform = None
     print(augmentation_transform)
-    print(augmentation_transform)
+    print(augmentation_transform_post)
 
     # Initial loss:
     x, target = dataloader_train.dataset[0]
@@ -324,6 +416,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             augmentation_transform.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
         x = augmentation_transform(x)
     if augmentation_transform_post is not None:
+        augmentation_transform_post = RandomAugmentations(p_comp=solver.get_curriculum_params())
         x = augmentation_transform_post(x)
     if features_transform is not None:
         x = features_transform(x)
@@ -331,6 +424,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
         target = target_transform(target)
     solver.set_input(x, target)
     solver.train_step()
+    solver.curriculum_scheduler_step(iter_idx)
 
     # Useful debugging
     #plots.plot_labels_cross_sections(target[0].detach().cpu(), n_classes=list(range(target[0].shape[-2])), plot_cartesian=True)
@@ -351,6 +445,11 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
         # Grad norm
         grad_norm_model = solver.get_grad_norm()
         writer.add_scalar('grad_norm/disc', grad_norm_model, step)
+
+        # Scheduler
+        if augmentation_transform_post is not None:
+            p_comp = solver.get_curriculum_params()
+            writer.add_scalar('params/p_comp', p_comp, step)
 
     if iter_idx % config.print_every == 0:
         curr_time = time.time() - start_time

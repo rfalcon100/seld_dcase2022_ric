@@ -40,8 +40,8 @@ class SpliceOut(BaseWaveformTransform):
             p=p,
             p_mode=p_mode,
             sample_rate=sample_rate,
-            #target_rate=target_rate,
-            #output_type=output_type,
+            target_rate=target_rate,
+            output_type=output_type,
         )
         self.num_time_intervals = num_time_intervals
         self.max_width = max_width
@@ -104,6 +104,12 @@ class SpliceOut(BaseWaveformTransform):
             sample = torch.cat((sample, padding), dim=-1)
             spliceout_samples.append(sample.unsqueeze(0))
 
+        return ObjectDict(
+            samples=1,
+            sample_rate=sample_rate,
+            targets=targets,
+            target_rate=target_rate,
+        )
         return ObjectDict(
             samples=torch.cat(spliceout_samples, dim=0),
             sample_rate=sample_rate,

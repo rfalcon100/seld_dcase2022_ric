@@ -94,7 +94,7 @@ def get_parameters():
         'job_id': config.job_id,
         'mode': config.mode,
         'num_iters': 200000,  # debug 10000
-        'batch_size': 2,  # debug 2
+        'batch_size': 32,  # debug 2
         'num_workers': config.num_workers,
         'print_every': 50,
         'logging_interval': 10000,  # debug 100 or 50
@@ -116,12 +116,12 @@ def get_parameters():
         #'dataset_list_train': ['dcase2022_devtrain_all.txt',
         #                       'dcase2022_sim_all.txt'],
         'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022'],
-        'dataset_list_train': ['dcase2022_devtrain_debug.txt'],
+        'dataset_list_train': ['dcase2022_devtrain_all.txt'],
         'dataset_root_valid': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
         'dataset_list_valid': 'dcase2022_devtest_all.txt',
         'dataset_root_eval': config.dataset_root_eval,
         'dataset_list_eval': config.dataset_list_eval,
-        'dataset_trim_wavs':-1,
+        'dataset_trim_wavs':30,
         'dataset_chunk_size': math.ceil(24000 * config.dataset_chunk_size_seconds),
         'dataset_chunk_size_seconds': config.dataset_chunk_size_seconds,
         'dataset_chunk_mode': 'random',

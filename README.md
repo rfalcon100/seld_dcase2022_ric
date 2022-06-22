@@ -10,4 +10,7 @@ conda env create -n dcase2022 --file requirements.yml
 source activate dcase 2022
 cd ./spaudiopy
 pip install -e .
+
+cd ./torch-audiomentations
+pip install -e .
 ```

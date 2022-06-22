@@ -35,6 +35,7 @@ class Solver(object):
         self._fixed_input = None
         self._fixed_input_counter = 0
         self._fixed_label = None
+        self._p_comp = 0.0
         self.lam = 1 # For mixup
 
         # If using multiple losses, each loss has a name, value, and function (criterion)
@@ -117,6 +118,8 @@ class Solver(object):
         elif self.config.model == 'samplecnn_gru':
             predictor = SampleCNN_GRU(output_timesteps=math.ceil(self.config.dataset_chunk_size_seconds * 10),
                                       num_class=self.config.unique_classes)
+        else:
+            raise ValueError(f'Model : {self.config.model} is not supported.')
 
         return predictor.to(self.device)
 
@@ -164,6 +167,25 @@ class Solver(object):
 
     def get_lrs(self):
         return self.optimizer_predictor.state_dict()['param_groups'][0]['lr']
+
+    def curriculum_scheduler_step(self, step: int):
+        """Updates parameters for curriculum learning.
+        For now, this supports:
+            - p_comp for the augmentations
+        """
+        update_every = 5000  # TODO: Harcoded for now, find a better value
+        if (step % update_every == 0) and step != 0:
+            # Update _p_comp
+            if self._p_comp < 0.8:  # TODO Hardcoded max
+                self._p_comp += 0.025  # TODO Harcdoded step size
+
+    def get_curriculum_params(self):
+        """ Returns the params that are being update via curriculum learning. """
+        return self._p_comp
+        p_comp = None
+        if self._p_comp != 0.0:
+            p_comp = self._p_comp
+        return p_comp
 
     def get_fixed_output(self):
         if self._fixed_input is not None:

@@ -91,3 +91,10 @@ crnn
 stft_iv
 --mode
 valid
+
+
+--model samplecnn_gru 
+--dataset_chunk_size_seconds 6 
+--model_features_transform none 
+--mode train
+--model_augmentation
