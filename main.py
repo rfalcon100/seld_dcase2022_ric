@@ -115,44 +115,6 @@ def get_audiomentations(p=0.5, fs=24000):
 
     return apply_augmentation
 
-def get_audiomentations_fixed(fs=24000, p=0.5, n_aug_min=2, n_aug_max=4):
-    """
-    WARNING: Pitchshift sometimes messes up with the spatial characteristics, because it affects the phase weirdly.
-    """
-    mode = 'per_example'
-    p_mode = 'per_example'
-    apply_augmentation = t_aug.SomeOf((n_aug_min, n_aug_max),
-                                      transforms=[
-                                          t_aug.Gain(p=p, min_gain_in_db=-15.0, max_gain_in_db=6.0, mode=mode, p_mode=p_mode),
-                                          t_aug.PolarityInversion(p=p, mode=mode, p_mode=p_mode),
-                                          t_aug.PitchShift(p=p, min_transpose_semitones=-1.5, max_transpose_semitones=1.5, sample_rate=fs,
-                                                           mode=mode, p_mode=p_mode),
-                                          t_aug.AddColoredNoise(p=p, min_snr_in_db=2.0, max_snr_in_db=30.0, min_f_decay=-2.0, max_f_decay=2.0,
-                                                                sample_rate=fs, mode=mode, p_mode=p_mode),
-                                          t_aug.BandStopFilter(p=p, min_center_frequency=400, max_center_frequency=4000,
-                                                               min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.1, sample_rate=fs,
-                                                               p_mode=p_mode),
-                                          t_aug.LowPassFilter(p=p, min_cutoff_freq=1000, max_cutoff_freq=5000, sample_rate=fs,
-                                                              p_mode=p_mode),
-                                          t_aug.HighPassFilter(p=p, min_cutoff_freq=250, max_cutoff_freq=1500, sample_rate=fs,
-                                                               p_mode=p_mode),
-                                          t_aug.BandPassFilter(p=p, min_center_frequency=400, max_center_frequency=4000,
-                                                               min_bandwidth_fraction=0.5, max_bandwidth_fraction=1.5, sample_rate=fs,
-                                                               p_mode=p_mode),
-                                          t_aug.SpliceOut(p=p, num_time_intervals=100, max_width=100, sample_rate=fs, p_mode=p_mode)
-                                      ]
-                                      )
-
-    class Limiter(nn.Sequential):
-        def __init__(self, threshold=1):
-            super().__init__()
-            self.threshold = threshold
-
-        def forward(self, x):
-            mask = torch.abs(x) > self.threshold
-            x[mask] = 1.0
-            return x
-
 class RandomAugmentations(nn.Sequential):
     def __init__(self, fs=24000, p=1, p_comp=1, n_aug_min=2, n_aug_max=4, threshold_limiter=1):
         super().__init__()
@@ -198,8 +160,7 @@ class RandomAugmentations(nn.Sequential):
         output = output['samples']
 
         # Limiter
-        mask = torch.abs(output) > self.threshold_limiter
-        output[mask] = 1.0
+        torch.clamp(output, min=-self.threshold_limiter, max=self.threshold_limiter)
 
         if do_reshape:
             output = output.squeeze(0)
@@ -287,6 +248,12 @@ def main():
         iter_idx = 0
         start_step_time = time.time()
         for data in islice(dataloader_train, config.num_iters + 1):
+            #checkpoint_root = '/m/triton/scratch/work/falconr1/dcase2022/seld_dcase2022_ric/logging'
+            #checkpoints_path = 'dcase2022_plus_dcase22-sim_FIXED_w-aug_mixup_b32_sample-5573019_n-work:0_samplecnn_batchnorm_144000__2022-06-22-220123'
+            #checkpoints_name = 'model_step_170000.pth'
+            #checkpoint = os.path.join(checkpoint_root, checkpoints_path, checkpoints_name)
+            #solver = Solver(config=config, model_checkpoint=checkpoint)
+
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
                                          device=device, features_transform=features_transform, augmentation_transform=augmentation_transform,
                                          augmentation_transform_post=augmentation_transform_post, target_transform=target_transform, solver=solver, writer=writer)
