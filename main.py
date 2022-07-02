@@ -47,7 +47,7 @@ def get_dataset(config):
         datasets_train.append(dataset_tmp)
     dataset_train = torch.utils.data.ConcatDataset(datasets_train)
     dataloader_train = InfiniteDataLoader(dataset_train, batch_size=config.batch_size, num_workers=config.num_workers,
-                                          shuffle=True, drop_last=True)
+                                          shuffle=True, drop_last=True, pin_memory=False)
 
     dataset_valid = DCASE_SELD_Dataset(directory_root=config.dataset_root_valid,
                                        list_dataset=config.dataset_list_valid,
@@ -289,7 +289,7 @@ def main():
                 print('================================================ \n')
 
             # Schedulers
-            if iter_idx % config.scheduler_step == 0 and iter_idx > 0:
+            if iter_idx % config.lr_scheduler_step == 0 and iter_idx > 0:
                 solver.lr_step(seld_metrics[4] if seld_metrics is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
             iter_idx += 1
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')

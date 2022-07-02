@@ -71,6 +71,7 @@ def get_parameters():
     p.add('-c', '--my-config', required=True, is_config_file=True, help='config file path', default='./configs/run_debug.yaml')
 
     p.add_argument('--exp_name', help="Optional experiment name.")
+    p.add_argument('--exp_group', help="Optional experiment group, useful to search for runs in the logs. This is added to the exp name.")
     p.add_argument('--seed_mode', help="Mode for random seeds.", choices=['balanced', 'random'])
     p.add_argument('--seed', type=int)
     p.add_argument('--mode', help='train or eval', choices=['train', 'valid', 'eval'])
@@ -86,6 +87,7 @@ def get_parameters():
     p.add_argument('--print_every', type=int, help='Print current status every x training iterations.')
     p.add_argument('--logging_interval', type=int, help='Validation interval')
     p.add_argument('--lr', type=float, help='Learning rate for optimizer.')
+    p.add_argument('--lr_scheduler_step', type=int, help='Step for the lr scheduler')
     p.add_argument('--lr_min', type=float, help='Minimum learning rate so that the Scheduler does not go too low.')
     p.add_argument('--lr_decay_rate', type=float, help='Decay rate for the lr scheduler.')
     p.add_argument('--lr_patience_times', type=float, help='Validaiton steps patienece for the lr scheduler.')
@@ -134,7 +136,7 @@ def get_parameters():
     if 'debug' in params['exp_name']:
         params['experiment_description'] = f'{params["exp_name"]}'
     else:
-        params['experiment_description'] = f'{params["exp_name"]}-{params["job_id"]}_' \
+        params['experiment_description'] = f'{params["exp_group"]}-{params["exp_name"]}-{params["job_id"]}_' \
                                            f'n-work:{params["num_workers"]}_' \
                                            f'{params["model"]}_' \
                                            f'{params["model_normalization"]}_' \
@@ -187,6 +189,7 @@ def get_parameters():
                    tags=['debug' if params['debug'] else 'exp',
                          params['model'],
                          'augmented' if params['model_augmentation'] else 'non-augmented'],
+                   group=params['exp_group'] if (params['exp_group'] is not None or params['exp_group'] != '') else None,
                    config=wandb_config,
                    dir=params["logging_dir"],
                    sync_tensorboard=True)

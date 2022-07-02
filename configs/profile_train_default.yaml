@@ -3,6 +3,7 @@
 
 #----------------------------------------------------------------------------------------------------------------
 exp_name: train
+exp_group: profile
 seed_mode: balanced     # ['balanced', 'random']
 seed: 5678
 mode: train             # ['train', 'valid', 'eval']
@@ -10,12 +11,13 @@ debug: false
 logging_dir: './logging'
 wandb: false
 
-num_iters: 10000
+num_iters: 5000
 batch_size: 32
 num_workers: 0
-print_every: 200
-logging_interval: 1000
+print_every: 100
+logging_interval: 500
 lr: 1e-4
+lr_scheduler_step: 500
 lr_min: 1e-7
 lr_decay_rate: 0.9
 lr_patience_times: 3

@@ -4,8 +4,8 @@
 #SBATCH --constraint=volta|ampere
 #SBATCH --cpus-per-task=6
 #SBATCH --mem 80G
-#SBATCH --time 0-0:30:00
-##SBATCH --time 0-16:00:00
+##SBATCH --time 0-0:30:00
+#SBATCH --time 0-16:00:00
 #SBATCH -o "slurm/train_%A_%a.out"
 #SBATCH --array=0-7
 
@@ -22,7 +22,12 @@ case $SLURM_ARRAY_TASK_ID in
 esac
 
 # example
-# >> sbatch scripts/run_train_array.sh 1111
+# >> sbatch scripts/run_train_array.sh training-monday 1111
+# or
+# >> sbatch run_train_array.sh 'table01_2022' 1234
+# Where the params are:
+# exp_group
+# seed
 
 # Useful variables when working with array jobs:
 # https://slurm.schedmd.com/job_array.html
@@ -59,7 +64,7 @@ echo Start job
 #srun script4experiment/seld_train_"$1".sh 0
 #srun script4experiment/seld_train_triton_"$1".sh 0 $param
 #srun script4experiment/seld_train_triton_"$1".sh 0 $param $2   #here we pass the random seed as parameter
-srun scripts/experiments.sh 0 $param $1 $SLURM_ARRAY_JOB_ID   # args are: gpu_id, params_id, random_seed, job_id
+srun scripts/experiments.sh 0 $param $1 $2 $SLURM_ARRAY_JOB_ID   # args are: gpu_id, params_id, exp_group, random_seed, job_id
 
 echo End of job
 conda deactivate

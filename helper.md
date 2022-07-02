@@ -136,7 +136,34 @@ train
 144000
 
 
+## PRofiling WANDB
 
+-c
+./configs/profile_train_default.yaml
+--dataset_trim_wavs
+15
+--exp_group
+profile
+--model
+samplecnn
+--dataset_chunk_size_seconds
+6
+--model_features_transform
+none
+--mode
+train
+--input_shape
+4
+144000
+
+This are commands that I can call from the command line in vrgpu to do some manual profiling.
+The idea is to monitor the step time, and look in my excel file for comparison.
+```bash
+python main.py -c ./configs/profile_train_default.yaml --dataset_trim_wavs 15 --exp_group profile --model samplecnn --dataset_chunk_size_seconds 6 --model_features_transform none --mode train --input_shape 4 144000
+python main.py -c ./configs/profile_train_default.yaml --dataset_trim_wavs 15 --exp_group profile --model samplecnn --model_augmentation --dataset_chunk_size_seconds 6 --model_features_transform none --mode train --input_shape 4 144000
+python main.py -c ./configs/profile_train_default.yaml --dataset_trim_wavs 15 --exp_group profile --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform none --mode train --input_shape 4 144000
+python main.py -c ./configs/profile_train_default.yaml --dataset_trim_wavs 15 --exp_group profile --model samplecnn_gru --model_augmentation --dataset_chunk_size_seconds 6 --model_features_transform none --mode train --input_shape 4 144000
+```
 ## Some useful git commands
 
 

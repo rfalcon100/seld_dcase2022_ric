@@ -3,6 +3,7 @@
 
 #----------------------------------------------------------------------------------------------------------------
 exp_name: debug
+exp_group: 'debug'
 seed_mode: balanced     # ['balanced', 'random']
 seed: 1234
 mode: train             # ['train', 'valid', 'eval']
@@ -16,6 +17,7 @@ num_workers: 0
 print_every: 50
 logging_interval: 100
 lr: 1e-4
+lr_scheduler_step: 1000
 lr_min: 1e-7
 lr_decay_rate: 0.9
 lr_patience_times: 3
