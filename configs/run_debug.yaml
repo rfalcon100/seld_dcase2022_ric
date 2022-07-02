@@ -1,0 +1,46 @@
+# This is a config file with the general options for DEBUG
+# a comment
+
+#----------------------------------------------------------------------------------------------------------------
+exp_name: debug
+seed_mode: balanced     # ['balanced', 'random']
+seed: 1234
+mode: train             # ['train', 'valid', 'eval']
+debug: true
+logging_dir: './logging'
+wandb: false
+
+num_iters: 200
+batch_size: 2
+num_workers: 0
+print_every: 50
+logging_interval: 100
+lr: 1e-4
+lr_min: 1e-7
+lr_decay_rate: 0.9
+lr_patience_times: 3
+
+#----------------------------------------------------------------------------------------------------------------
+model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
+model_features_transform: stft_iv     # ['stft_iv', 'none']
+model_augmentation: false
+model_loss_fn: mse      # ['mse', 'bce']
+model_normalization: batchnorm
+detection_threshold: 0.4
+thresh_unify: 15
+use_mixup: false
+mixup_alpha: 0.2
+input_shape: [7, 96, 256]      # 'input_shape': [4, 144000], when using sample cnn
+output_shape: [3, 12, 256]
+
+#----------------------------------------------------------------------------------------------------------------
+dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55.
+dataset_chunk_mode: random        # ['random', 'fixed', 'full']
+dataset_multi_track: false
+dataset_trim_wavs: -1
+dataset_root: ['/m/triton/scratch/work/falconr1/sony/data_dcase2022']
+dataset_list_train: ['dcase2022_devtrain_debug.txt']
+dataset_root_valid: '/m/triton/scratch/work/falconr1/sony/data_dcase2022'
+dataset_list_valid: 'dcase2022_devtrain_debug.txt'
+dataset_root_eval: '/m/triton/scratch/work/falconr1/sony/data_dcase2022'
+dataset_list_eval: 'dcase2022_eval_all.txt'

@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# Helper on how to use the parser:
+# https://github.com/bw2/ConfigArgParse
 
 import argparse
 import math
@@ -7,7 +9,7 @@ import yaml
 import shutil
 from easydict import EasyDict
 from datetime import datetime
-
+import configargparse
 
 def get_result_dir_path(experiment_description: str, root: str = './results'):
     """Returns path where to save training results of a experiment specific result.
@@ -41,7 +43,6 @@ def get_result_dir_path(experiment_description: str, root: str = './results'):
     finally:
         return path
 
-
 def list_of_2d_tuples(s):
     '''
     For the argparser, this reads a string in the format:
@@ -63,74 +64,62 @@ def list_of_2d_tuples(s):
     except:
         raise argparse.ArgumentTypeError("Error reading parameters. Tuples must be x,y")
 
-
 def get_parameters():
-    '''
-    Gets the parameters for the experiments, including training settings, dataset, spectrograms, and models..
-    '''
+    #p = configargparse.ArgParser(default_config_files=['./configs/*.yaml'], config_file_parser_class=configargparse.YAMLConfigFileParser)
+    p = configargparse.ArgParser(config_file_parser_class=configargparse.YAMLConfigFileParser)
+    #p = configargparse.ArgParser(default_config_files=['./configs/*.yaml'])
+    p.add('-c', '--my-config', required=True, is_config_file=True, help='config file path', default='./configs/run_debug.yaml')
 
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument('--exp_name', help="Optional experiment name.")
+    p.add_argument('--seed_mode', help="Mode for random seeds.", choices=['balanced', 'random'])
+    p.add_argument('--seed', type=int)
+    p.add_argument('--mode', help='train or eval', choices=['train', 'valid', 'eval'])
+    p.add_argument('--debug', action='store_true', help='Enables debug mode, with short runs and no logging.')
+    p.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
+    p.add_argument('--logging_dir', help='Directory to save logs and results.')
+    p.add_argument('--wandb', action='store_true', help='Enable wandb to log runs.')
 
-    parser.add_argument('--exp_name', type=str, default='debug', help="Optional experiment name.")
-    parser.add_argument('--mode', type=str, default='train', help='train or eval', choices=['train', 'valid', 'eval'])
-    parser.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
-    parser.add_argument('--num_workers', type=int, default=0, help='Num workers for dataloader.')
-    parser.add_argument('--detection_threshold', type=float, default=0.4, help='Threshold for detecting events during evaluation.')
+    # Run arguments
+    p.add_argument('--num_iters', type=int, help='Num of trianing iterations.')
+    p.add_argument('--batch_size', type=int, help='Batch size.')
+    p.add_argument('--num_workers', type=int, help='Num workers for dataloader.')
+    p.add_argument('--print_every', type=int, help='Print current status every x training iterations.')
+    p.add_argument('--logging_interval', type=int, help='Validation interval')
+    p.add_argument('--lr', type=float, help='Learning rate for optimizer.')
+    p.add_argument('--lr_min', type=float, help='Minimum learning rate so that the Scheduler does not go too low.')
+    p.add_argument('--lr_decay_rate', type=float, help='Decay rate for the lr scheduler.')
+    p.add_argument('--lr_patience_times', type=float, help='Validaiton steps patienece for the lr scheduler.')
 
     # Model arguments
-    parser.add_argument('--model', type=str, default='crnn10', help='Model to sue')
-    parser.add_argument('--model_features_transform', type=str, default='stft_iv', help='Features transform to use in the model')
-    parser.add_argument('--model_augmentation', action="store_true", help='Enable data augmentation in audio domain')
+    p.add_argument('--model', help='Model to use.')
+    p.add_argument('--model_features_transform', help='Features transform to use in the model')
+    p.add_argument('--model_augmentation', action='store_true', help='Enable data augmentation in audio domain')
+    p.add_argument('--model_loss_fn', help='Loss function.', choices=['mse', 'bce'])
+    p.add_argument('--model_normalization', help='Threshold for detecting events during evaluation.')
+    p.add_argument('--detection_threshold', type=float, help='Threshold for detecting events during evaluation.')
+    p.add_argument('--thresh_unify', type=float, help='Threshold for unify detections during evaluation')
+    p.add_argument('--use_mixup', action='store_true')
+    p.add_argument('--mixup_alpha', type=float)
+    p.add_argument('--input_shape', nargs='+', type=int, help='Input shape for the model. ')   #'input_shape': [4, 144000], when using sample cnn
+    p.add_argument('--output_shape', nargs='+', type=int, help='Output shape of the model, so the predictions.')
 
     # Dataset arguments
-    parser.add_argument('--dataset_chunk_size_seconds', type=float, default=2.55, help='Chunk size of the input audio, in seconds. For example 1.27, or 2.55.')
-    parser.add_argument('--dataset_root_eval', type=str, default='/m/triton/scratch/work/falconr1/sony/data_dcase2022', help='Root path for the evaluation dataset. See helper.md for examples.')
-    parser.add_argument('--dataset_list_eval', type=str, default='dcase2022_eval_all.txt', help='File with wav filenames for the evaluation dataset. See helper.md for examples.')
-    config = parser.parse_args()
+    p.add_argument('--dataset_chunk_size_seconds', type=float, help='Chunk size of the input audio, in seconds. For example 1.27, or 2.55.')
+    p.add_argument('--dataset_chunk_mode', choices=['random', 'fixed', 'full'])
+    p.add_argument('--dataset_multi_track', action='store_true')
+    p.add_argument('--dataset_trim_wavs', type=int, help='Trim wavs to this value in seconds when loading. Use -1 to load full wavs.')
+    p.add_argument('--dataset_root', nargs='+', type=str)
+    p.add_argument('--dataset_list_train', nargs='+')
+    p.add_argument('--dataset_root_valid')
+    p.add_argument('--dataset_list_valid')
+    p.add_argument('--dataset_root_eval', help='Root path for the evaluation dataset. See helper.md for examples.')
+    p.add_argument('--dataset_list_eval', help='File with wav filenames for the evaluation dataset. See helper.md for examples.')
 
-    params = {
-        'exp_name': config.exp_name,  # debug1
-        'seed_mode': 'balanced',
-        'job_id': config.job_id,
-        'mode': config.mode,
-        'num_iters': 200000,  # debug 10000
-        'batch_size': 32,  # debug 2
-        'num_workers': config.num_workers,
-        'print_every': 50,
-        'logging_interval': 10000,  # debug 100 or 50
-        'lr': 1e-4,
-        'lr_decay_rate': 0.9,
-        'lr_patience_times': 3,
-        'lr_min': 1e-7,  # should be 1e-7 when using scheduler
-        'model': config.model,
-        'model_features_transform': config.model_features_transform,
-        'model_augmentation': config.model_augmentation,
-        'model_normalization': 'batchnorm',
-        'model_loss_fn': 'mse',
-        'input_shape': [7, 96, 256],
-        #'input_shape': [4, 144000],
-        'output_shape': [3, 12, 256],
-        'logging_dir': './logging',
-        #'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-        #                 '/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim'],
-        #'dataset_list_train': ['dcase2022_devtrain_all.txt',
-        #                       'dcase2022_sim_all.txt'],
-        'dataset_root': ['/m/triton/scratch/work/falconr1/sony/data_dcase2022'],
-        'dataset_list_train': ['dcase2022_devtrain_all.txt'],
-        'dataset_root_valid': '/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-        'dataset_list_valid': 'dcase2022_devtest_all.txt',
-        'dataset_root_eval': config.dataset_root_eval,
-        'dataset_list_eval': config.dataset_list_eval,
-        'dataset_trim_wavs':30,
-        'dataset_chunk_size': math.ceil(24000 * config.dataset_chunk_size_seconds),
-        'dataset_chunk_size_seconds': config.dataset_chunk_size_seconds,
-        'dataset_chunk_mode': 'random',
-        'dataset_multi_track': False,
-        'thresh_unify': 15,
-        'use_mixup': True,
-        'mixup_alpha': 0.2,
-        'detection_threshold': config.detection_threshold,
-    }
+    params = p.parse_args()
+
+    # Set fixed values that are not defined in the config files
+    params.dataset_chunk_size = math.ceil(24000 * params.dataset_chunk_size_seconds)
+    params = vars(params)
 
     if '2020' in params['dataset_root_valid']:
         params['unique_classes'] = 14
@@ -153,6 +142,7 @@ def get_parameters():
                                            f'_{datetime.now().strftime("%Y-%m-%d-%H%M%S")}'
     params['logging_dir'] = f'{params["logging_dir"]}/{params["experiment_description"]}'
     params['directory_output_results'] = f'{params["logging_dir"]}/tmp_results'
+
 
     # Results dir saves:
     #   parameters.yaml
@@ -179,6 +169,27 @@ def get_parameters():
         yaml.dump(params, f, default_flow_style=None)
     if not os.path.exists(params['directory_output_results']):
         os.mkdir(params['directory_output_results'])
+
+
+    if params['wandb']:
+        import wandb
+
+        wandb_config = {
+            "model": params['model'],
+            "model_augmentation": params['model_augmentation'],
+            "model_features_transform": params['model_features_transform'],
+            "model_loss_fn": params['model_loss_fn'],
+            "job_id": params['job_id'],
+            "num_workers": params['num_workers'],
+        }
+        wandb.init(project='seld_dcase2022_ric',
+                   name=params['exp_name'],
+                   tags=['debug' if params['debug'] else 'exp',
+                         params['model'],
+                         'augmented' if params['model_augmentation'] else 'non-augmented'],
+                   config=wandb_config,
+                   dir=params["logging_dir"],
+                   sync_tensorboard=True)
 
     return EasyDict(params)
 

@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 import os, shutil, math
 import yaml
 import time
+import wandb
 from easydict import EasyDict
 from datetime import datetime
 from itertools import islice
@@ -172,7 +173,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Reproducibility
-    utils.seed_everything(seed=12345, mode=config.seed_mode)
+    utils.seed_everything(seed=config.seed, mode=config.seed_mode)
 
     # Logging configuration
     writer = SummaryWriter(config.logging_dir)
@@ -286,10 +287,13 @@ def main():
                                                                                    seld_metrics_class_wise[3][cls_cnt],
                                                                                    seld_metrics_class_wise[4][cls_cnt]))
                 print('================================================ \n')
-                # Schedulers
+
+            # Schedulers
+            if iter_idx % config.scheduler_step == 0 and iter_idx > 0:
                 solver.lr_step(seld_metrics[4] if seld_metrics is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
             iter_idx += 1
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
+        wandb.finish()
 
     elif config.mode == 'eval':
         checkpoint_root = '/m/triton/scratch/work/falconr1/dcase2022/seld_dcase2022_ric/logging'
@@ -330,6 +334,11 @@ def main():
         checkpoints_path = ['dcase2022_plus_scase22-sim_w-aug_mixup_255_long-5423265_n-work:0_crnn10_batchnorm_61200__2022-06-16-150605']
         checkpoints_name = 'model_step_80000.pth'
 
+        checkpoints_path = ['dcase2022_plus_dcase22-sim_no-aug_mixup_b32_-5440404_n-work:0_samplecnn_batchnorm_144000__2022-06-18-201151']
+        checkpoints_name = 'model_step_90000.pth'
+
+        checkpoints_path = ['dcase22_plus_dcase22-sim_w-aug-5405063_n-work:0_crnn10_batchnorm_30480__2022-06-15-195028']
+        checkpoints_name = 'model_step_100000.pth'
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
         solver = Solver(config=config, model_checkpoint=checkpoint)
 
@@ -404,6 +413,8 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     if writer is not None:
         step = iter_idx
         writer.add_scalar('Losses/train', train_loss.item(), step)
+        #if config.wandb:
+        #    wandb.log({'Losses/train': train_loss.item()}, step=step)
 
         # Learning rates
         lr = solver.get_lrs()

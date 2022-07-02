@@ -84,7 +84,7 @@ valid
 
 
 --model
-crnn
+crnn10
 --dataset_chunk_size_seconds
 2.55
 --model_features_transform
@@ -98,3 +98,55 @@ valid
 --model_features_transform none 
 --mode train
 --model_augmentation
+--input_shape 4 144000
+
+
+--model
+crnn10
+--dataset_chunk_size_seconds
+2.55
+--model_features_transform
+stft_iv
+--mode
+train
+--num_workers
+0
+--model_augmentation
+--wandb
+
+
+
+## Params when using the new config files_
+
+-c
+./configs/run_debug.yaml
+--wandb
+--num_iters
+500
+--model
+samplecnn
+--dataset_chunk_size_seconds
+6
+--model_features_transform
+none
+--mode
+train
+--input_shape
+4
+144000
+
+
+
+## Some useful git commands
+
+
+```bash
+git remote -v
+
+git add files.py
+gig commit -m "my commit"
+git push gitohubo ---> commits to github 
+git push  
+or
+git push origin  --> commits to gitlab 
+```

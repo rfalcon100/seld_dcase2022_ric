@@ -26,7 +26,7 @@ which python
 echo "init done"
 
 echo "Start of job"
-srun python main.py --exp_name profile_"$num_w" --num_workers $num_w --job_id %j
+srun python main.py --exp_name profile_"$num_w" --num_workers $num_w --job_id $SLURM_JOB_ID
 echo "End of job"
 
 conda deactivate
