@@ -323,11 +323,14 @@ def _random_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float, trim_wa
         star_min_sec, start_max_sec = 2, math.floor(trim_wavs - (chunk_size_audio/fs + 2))
     else:
         star_min_sec, start_max_sec = 0, math.floor(clip_length_seconds - chunk_size_audio/fs)
-    start_sec = np.round(np.random.randint(star_min_sec,
-                                           min((audio.shape[-1] - chunk_size_audio / 2) / fs, start_max_sec),
-                                           1))
+    if star_min_sec == start_max_sec:
+        start_sec = star_min_sec
+    else:
+        start_sec = np.round(np.random.randint(star_min_sec,
+                                               min((audio.shape[-1] - chunk_size_audio / 2) / fs, start_max_sec),
+                                               1))[0]
     start_index = start_sec * fs
-    sliced_audio = audio[:, start_index[0]: start_index[0] + round(chunk_size_audio)]
+    sliced_audio = audio[:, start_index: start_index + round(chunk_size_audio)]
     return sliced_audio, start_sec
 
 def _fixed_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float) -> Tuple[torch.Tensor, int]:
@@ -572,7 +575,7 @@ def _get_padders(chunk_size_seconds: float = 1.27,
     # Wavs:
     fs = audio_fs
     audio_full_size = fs * duration_seconds
-    audio_chunk_size = math.ceil(fs * chunk_size_seconds)
+    audio_chunk_size = round(fs * chunk_size_seconds)
     audio_pad_size = math.ceil(audio_full_size / audio_chunk_size) + math.ceil(audio_fs / labels_fs / overlap)
     audio_padder = nn.ConstantPad1d(padding=(0, audio_pad_size), value=0.0)
     audio_step_size = math.floor(audio_chunk_size * overlap)
@@ -580,7 +583,7 @@ def _get_padders(chunk_size_seconds: float = 1.27,
     # Labels:
     labels_fs = labels_fs  # 100 --> 10 ms
     labels_full_size = labels_fs * duration_seconds
-    labels_chunk_size = math.ceil(labels_fs * chunk_size_seconds) + 1
+    labels_chunk_size = round(labels_fs * chunk_size_seconds) + 1
     labels_pad_size = math.ceil(labels_full_size / labels_chunk_size) + 1
     labels_padder = nn.ConstantPad2d(padding=(0, labels_pad_size, 0, 0), value=0.0)
     labels_step_size = math.floor(labels_chunk_size * overlap)

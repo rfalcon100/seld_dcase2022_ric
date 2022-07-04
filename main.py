@@ -68,22 +68,8 @@ def get_augmentation(device='cpu'):
               'order_output': 1,
               'order_input': 1,
               'backend': 'basic',
-              'w_pattern': 'hypercardioid',
-              'fs': 48000}
+              'w_pattern': 'hypercardioid'}
 
-    rotation_params = {'rot_phi': 0.0,
-                       'rot_theta': 0.0,
-                       'rot_psi': 1.5 * np.pi / 2}
-    rotation_params = {'rot_phi': 0.0,
-                       'rot_theta': 0.0,
-                       'rot_psi': np.pi / 4}
-    rotation_angles = [rotation_params['rot_phi'], rotation_params['rot_theta'], rotation_params['rot_psi']]
-
-    rotation = spm.SphericalRotation(rotation_angles_rad=rotation_angles,
-                                     t_design_degree=params['t_design_degree'],
-                                     order_output=params['order_output'],
-                                     order_input=params['order_input'])
-    # plots.plot_transform_matrix(rotation.T_mat, xlabel='Input ACN', ylabel='Output ACN')
     transform = spm.DirectionalLoudness(t_design_degree=params['t_design_degree'],
                                         G_type=params['G_type'],
                                         use_slepian=params['use_slepian'],
@@ -94,6 +80,28 @@ def get_augmentation(device='cpu'):
                                         device=device)
 
     return transform
+
+def get_rotations(device='cpu'):
+    params = {'t_design_degree': 20,
+              'G_type': 'identity',
+              'use_slepian': False,
+              'order_output': 1,
+              'order_input': 1,
+              'backend': 'basic',
+              'w_pattern': 'hypercardioid'}
+
+    rotation_params = {'rot_phi': 0.0,
+                       'rot_theta': 0.0,
+                       'rot_psi': 0.0}
+    rotation_angles = [rotation_params['rot_phi'], rotation_params['rot_theta'], rotation_params['rot_psi']]
+
+    rotation = spm.SphericalRotation(rotation_angles_rad=rotation_angles,
+                                     t_design_degree=params['t_design_degree'],
+                                     order_output=params['order_output'],
+                                     order_input=params['order_input'],
+                                     device=device)
+
+    return rotation
 
 def get_audiomentations(p=0.5, fs=24000):
     from augmentation.spliceout import SpliceOut
@@ -117,7 +125,7 @@ def get_audiomentations(p=0.5, fs=24000):
     return apply_augmentation
 
 class RandomAugmentations(nn.Sequential):
-    def __init__(self, fs=24000, p=1, p_comp=1, n_aug_min=2, n_aug_max=4, threshold_limiter=1):
+    def __init__(self, fs=24000, p=1, p_comp=1, n_aug_min=2, n_aug_max=6, threshold_limiter=1):
         super().__init__()
         self.fs = fs
         self.p = p
@@ -211,6 +219,11 @@ def main():
         #augmentation_transform_post = get_audiomentations().to(device)
         augmentation_transform_post = RandomAugmentations(p_comp=0.0).to(device)
 
+    if config.model_rotations:
+        rotations_transform = get_rotations(device=device).to(device)
+    else:
+        rotations_transform = None
+
     if 'samplecnn' in config.model:
         class t_transform(nn.Sequential):
             def __int__(self):
@@ -221,6 +234,7 @@ def main():
         target_transform = t_transform()
     else:
         target_transform = None
+    print(rotations_transform)
     print(augmentation_transform)
     print(augmentation_transform_post)
 
@@ -257,7 +271,8 @@ def main():
 
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
                                          device=device, features_transform=features_transform, augmentation_transform=augmentation_transform,
-                                         augmentation_transform_post=augmentation_transform_post, target_transform=target_transform, solver=solver, writer=writer)
+                                         rotation_transform=rotations_transform, augmentation_transform_post=augmentation_transform_post,
+                                         target_transform=target_transform, solver=solver, writer=writer)
 
             if iter_idx % config.print_every == 0 and iter_idx > 0:
                 start_step_time = time.time()
@@ -379,13 +394,16 @@ def main():
         print('================================================ \n')
 
 def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: [nn.Sequential, None],
-                    augmentation_transform: [nn.Sequential, None], augmentation_transform_post: [nn.Sequential, None],
-                    target_transform: [nn.Sequential, None], solver, writer):
+                    augmentation_transform: [nn.Sequential, None], rotation_transform: [nn.Sequential, None],
+                    augmentation_transform_post: [nn.Sequential, None], target_transform: [nn.Sequential, None], solver, writer):
     # Training iteration
     x, target = data
     x, target = x.to(device), target.to(device)
 
-    # Augmentation and Feature extraction
+    # Rotaiton, Augmentation and Feature extraction
+    if rotation_transform is not None:
+        rotation_transform.reset_R()
+        x, target = rotation_transform(x, target)
     if augmentation_transform is not None:
         augmentation_transform.reset_G(G_type='spherical_cap_soft')
         if False:  # Debugging

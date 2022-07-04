@@ -96,6 +96,7 @@ def get_parameters():
     p.add_argument('--model', help='Model to use.')
     p.add_argument('--model_features_transform', help='Features transform to use in the model')
     p.add_argument('--model_augmentation', action='store_true', help='Enable data augmentation in audio domain')
+    p.add_argument('--model_rotations', action='store_true', help='Enable soundfiled rotations for audio and labels.')
     p.add_argument('--model_loss_fn', help='Loss function.', choices=['mse', 'bce'])
     p.add_argument('--model_normalization', help='Threshold for detecting events during evaluation.')
     p.add_argument('--detection_threshold', type=float, help='Threshold for detecting events during evaluation.')
@@ -120,7 +121,7 @@ def get_parameters():
     params = p.parse_args()
 
     # Set fixed values that are not defined in the config files
-    params.dataset_chunk_size = math.ceil(24000 * params.dataset_chunk_size_seconds)
+    params.dataset_chunk_size = round(24000 * params.dataset_chunk_size_seconds)
     params = vars(params)
 
     if '2020' in params['dataset_root_valid']:
@@ -188,7 +189,8 @@ def get_parameters():
                    name=params['exp_name'],
                    tags=['debug' if params['debug'] else 'exp',
                          params['model'],
-                         'augmented' if params['model_augmentation'] else 'non-augmented'],
+                         'augmented' if params['model_augmentation'] else 'non-augmented',
+                         'rot' if params['model_rotations'] else 'non-rot'],
                    group=params['exp_group'] if (params['exp_group'] is not None or params['exp_group'] != '') else None,
                    config=wandb_config,
                    dir=params["logging_dir"],

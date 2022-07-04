@@ -26,6 +26,7 @@ lr_patience_times: 3
 model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
 model_features_transform: stft_iv     # ['stft_iv', 'none']
 model_augmentation: false
+model_rotations: True
 model_loss_fn: mse      # ['mse', 'bce']
 model_normalization: batchnorm
 detection_threshold: 0.4

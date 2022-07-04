@@ -1,0 +1,50 @@
+# This is a config file with the general options for DEBUG
+# a comment
+
+#----------------------------------------------------------------------------------------------------------------
+exp_name: train
+exp_group: ''
+seed_mode: balanced     # ['balanced', 'random']
+seed: 5678
+mode: train             # ['train', 'valid', 'eval']
+debug: false
+logging_dir: './logging'
+wandb: false
+
+num_iters: 200000
+batch_size: 32
+num_workers: 0
+print_every: 200
+logging_interval: 10000
+lr: 1e-4
+lr_scheduler_step: 10000
+lr_min: 1e-7
+lr_decay_rate: 0.9
+lr_patience_times: 3
+
+#----------------------------------------------------------------------------------------------------------------
+model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
+model_features_transform: stft_iv     # ['stft_iv', 'none']
+model_augmentation: false
+model_rotations: false
+model_loss_fn: mse      # ['mse', 'bce']
+model_normalization: batchnorm
+detection_threshold: 0.4
+thresh_unify: 15
+use_mixup: true
+mixup_alpha: 0.2
+input_shape: [7, 96, 256]      # 'input_shape': [4, 144000], when using sample cnn
+output_shape: [3, 12, 256]
+
+#----------------------------------------------------------------------------------------------------------------
+dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55, or 5.11
+dataset_chunk_mode: random        # ['random', 'fixed', 'full']
+dataset_multi_track: false
+dataset_trim_wavs: -1
+dataset_root: ['/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3']
+dataset_list_train: ['dcase2021t3_foa_devtrain.txt']
+dataset_root_valid: '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3'
+dataset_list_valid: 'dcase2021t3_foa_devtest.txt'
+dataset_root_eval: '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3'
+dataset_list_eval: 'dcase2021t3_foa_evaltest.txt'
+

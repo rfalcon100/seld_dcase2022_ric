@@ -29,6 +29,19 @@ def get_grid(degree: int):
     t_design = spa.grids.load_t_design(degree=degree)
     return t_design
 
+def draw_random_rotaion_angels() -> torch.Tensor:
+    """ Returns a list of random angles for spherical rotations.
+    Here we can set up the constraints, for example, to limit the rotation in elevation."""
+    limits = [(0, np.pi / 2), (0, np.pi / 2), (-np.pi / 4, np.pi / 4)]
+    means = torch.tensor([0.0, 0.0, np.pi / 4])
+    b = torch.tensor([np.sum(np.abs(x)) for x in limits])
+    tmp = torch.rand(size=(3,))
+
+    #tmp = torch.tensor([0.5, 0.5, 0.5])
+    # tmp = torch.tensor([1., 1., 1.])
+    # tmp = torch.tensor([0., 0., 0.])
+    angles = tmp * b - means
+    return angles
 
 def draw_random_spherical_cap(spherical_cap_type='soft', device='cpu') -> Tuple[
     torch.Tensor, torch.Tensor, float, float]:
@@ -104,8 +117,8 @@ def compute_Y_and_W(grid, rotation_matrix: torch.Tensor = None, order_input: int
 
     return Y, W
 
-
-class SphericalRotation(object):
+    
+class SphericalRotation(nn.Module):
     """ Class to do 3d rotations to signals in spherical harmonics domain
 
     mode == 'single' --> Applies a single rotation by the specified rotation angles.
@@ -116,6 +129,7 @@ class SphericalRotation(object):
                  mode='single', num_random_rotations: int = -1, device: str = 'cpu',
                  t_design_degree: int = 3, order_input: int = 1, order_output: int = 1,
                  backend='basic', w_pattern='hypercardioid'):
+        super(SphericalRotation, self).__init__()
         assert t_design_degree > 2 * order_output, 'The t-design degree should be > 2 * N_{tilde} of the output order '
 
         self.rotation_angles_rad = rotation_angles_rad
@@ -148,7 +162,7 @@ class SphericalRotation(object):
 
             self.T_mat = T_mat.to(self.device)
 
-    def forward(self, X: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+    def forward(self, X: Union[torch.Tensor, np.ndarray], targets: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
         assert X.shape[-2] == self.W.shape[
             -1], 'ERROR: The order of the input signal does not match the rotation matrix'
 
@@ -160,9 +174,14 @@ class SphericalRotation(object):
             assert X.shape[-2] == self.W.shape[-1], 'Wrong shape for input signal or matrix W.'
         assert self.T_mat.shape[-1] == X.shape[-2], 'Wrong shape for input signal or matrix T.'
 
-        out = torch.matmul(self.T_mat, X)
+        out_x = torch.matmul(self.T_mat, X.double())
+        #print(f't_mat shape: {self.T_mat.shape}')
+        #print(f'r shape: {self.R.shape}')
+        #print(f'targets shape: {targets.shape}')
+        out_targets = torch.matmul(targets.double().permute((0, 2, 3, 1)), self.R)
+        out_targets = out_targets.permute((0, 3, 1, 2))
 
-        return out
+        return out_x.float(), out_targets.float()
 
     def __repr__(self):
         rep = "SphericalRotation with: \n"
@@ -175,6 +194,20 @@ class SphericalRotation(object):
         rep += f'Rotation_angles = {self.rotation_angles_rad} \n'
 
         return rep
+
+    def reset_R(self, rotation_angles_rad: Tuple[float, float, float] = None):
+        if rotation_angles_rad is None:
+            rotation_angles_rad = draw_random_rotaion_angels()
+        self.rotation_angles_rad = rotation_angles_rad
+        tmp = utils.get_rotation_matrix(*self.rotation_angles_rad)
+        self.R = tmp.to('cpu')  # TODO, in cpu due to compatiblity with spaudiopy, we need to recompute Y
+
+        Y, W = compute_Y_and_W(self.grid, self.R, self.order_input, self.order_output,
+                               backend=self.backend, w_pattern=self.w_pattern)
+        self.R = self.R.to(self.device)
+        self.Y = Y.to(self.device)
+        self.W = W.to(self.device)
+        self.T_mat = torch.matmul(self.Y.transpose(1, 0), self.W)
 
 
 class DirectionalLoudness(nn.Module):
@@ -216,13 +249,14 @@ class DirectionalLoudness(nn.Module):
     def __init__(self, order_input: int = 1, t_design_degree: int = 3, order_output: int = 1,
                  G_type: str = 'random_diag', G_values: Union[np.ndarray, torch.Tensor] = None,
                  device: str = 'cpu', T_pseudo_floor=1e-8, backend='basic', w_pattern='hypercardioid',
-                 use_slepian=False):
+                 use_slepian=False, rotation_angles_rad: Tuple[float, float, float] = None):
         super(DirectionalLoudness, self).__init__()
         assert t_design_degree > 2 * order_output, 'The t-design degree should be > 2 * N_{tilde} of the output order '
 
         self._Y = None
         self._G = None
         self._W = None
+        self.reset_R(rotation_angles_rad)
         self.T_mat = None
 
         self.grid = get_grid(degree=t_design_degree)
@@ -260,6 +294,13 @@ class DirectionalLoudness(nn.Module):
         rep += f'Spherical_cap params: \n\t{self.G_cap_center}\n, \t{self.G_cap_width}\n, \t{self.G_g1}\n, \t{self.G_g2}'
 
         return rep
+
+    def reset_R(self, rotation_angles_rad: Tuple[float, float, float] = None):
+        if rotation_angles_rad is not None:
+            tmp = utils.get_rotation_matrix(*self.rotation_angles_rad)
+            self.R = tmp.to(self.device)
+        else:
+            self.R = None
 
     def reset_G(self, G_type: str = 'identity',
                 G_values: Union[np.ndarray, torch.Tensor] = None,
@@ -465,11 +506,58 @@ def test_directional_loudness():
                                     G_type=params['G_type'],
                                     order_output=params['order_output'],
                                     order_input=params['order_input'])
+    sig_in = torch.randn(size=[1, 4, 24000])
+    sig_out = transform(sig_in)
 
     assert torch.all(
         torch.isclose(transform.T_mat, torch.eye(transform.T_mat.shape))), 'T_mat should be close to identity'
+    assert torch.all(
+        torch.isclose(sig_in, sig_out)), 'Ouput signal should be close to input signal when using identity'
 
+def test_rotation():
+    """
+    This is a test for the SphericalRotation class. It mostly tests:
+    """
+    params = {'t_design_degree': 20,
+              'G_type': 'identity',
+              'use_slepian': False,
+              'order_output': 1,
+              'order_input': 1,
+              'backend': 'basic',
+              'w_pattern': 'hypercardioid',
+              'fs': 48000}
+
+    rotation_params = {'rot_phi': 0.0,
+                       'rot_theta': 0.0,
+                       'rot_psi': 1.5 * np.pi / 2}
+    rotation_params = {'rot_phi': 0.0,
+                       'rot_theta': 0.0,
+                       'rot_psi': np.pi / 4}
+    rotation_params = {'rot_phi': 0.0,
+                       'rot_theta': 0.0,
+                       'rot_psi': 0.0}
+    rotation_angles = [rotation_params['rot_phi'], rotation_params['rot_theta'], rotation_params['rot_psi']]
+
+    rotation = SphericalRotation(rotation_angles_rad=rotation_angles,
+                                     t_design_degree=params['t_design_degree'],
+                                     order_output=params['order_output'],
+                                     order_input=params['order_input'])
+
+    audio = torch.randn(size=[1, 4, 24000])
+    targets = torch.randn(size=[1, 3, 12, 128])
+
+    with torch.no_grad():
+        audio_rot, targets_rot = rotation(audio, targets)
+
+    assert torch.all(
+        torch.isclose(audio_rot, audio_rot)), 'Ouput signal should be close to input signal when using identity'
+    assert torch.all(
+        torch.isclose(targets_rot, targets_rot)), 'Ouput signal should be close to input signal when using identity'
+
+    plots.plot_labels(targets, title='Original')
+    plots.plot_labels(targets_rot, title='Rotated')
 
 if __name__ == '__main__':
-    test_directional_loudness()
+    #test_directional_loudness()
+    test_rotation()
 
