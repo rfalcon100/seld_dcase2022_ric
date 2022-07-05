@@ -493,6 +493,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
     model = solver.predictor
     model.eval()
     file_cnt = 0
+    overlap = 1  # defualt should be 1  TODO, onluy works for 1 and 0.5
 
     print(f'Validation: {len(dataset)} fnames in dataset.')
     with torch.no_grad():
@@ -507,7 +508,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             warnings.warn('WARNING: Hard coded chunk size for evaluation')
             audio_padding, labels_padding = _get_padders(chunk_size_seconds=config.dataset_chunk_size / dataset._fs[fname],
                                                          duration_seconds=math.floor(duration),
-                                                         overlap=1,
+                                                         overlap=overlap,
                                                          audio_fs=dataset._fs[fname],
                                                          labels_fs=100)
 
@@ -542,7 +543,24 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             if config.dataset_multi_track:
                 output = torch.concat(full_output, dim=-2)
             else:
-                output = torch.concat(full_output, dim=-1)
+                if overlap == 1:
+                    output = torch.concat(full_output, dim=-1)
+                else:
+                    # TODO: this is not ready
+                    # Rebuild when using overlap
+                    # This is basically a folding operation, using an average of the predictions of each overlapped chunk
+                    aa = len(full_output) - 1
+                    resulton = torch.zeros(aa, labels.shape[-3], labels.shape[-2], labels_padding['full_size'] + labels_padding['padder'].padding[-3])
+                    weights = torch.zeros(1, labels_padding['full_size'] + labels_padding['padder'].padding[-3])
+                    for ii in range(0, aa):
+                        #print(ii)
+                        start_i = ii * labels_padding['hop_size']
+                        end_i = start_i + round(labels_padding['hop_size'] * 1/overlap)
+                        #yolingon = full_output[ii][0]
+                        resulton[ii, :, :, start_i:end_i] = full_output[ii][0]
+                        weights[:, start_i:end_i] = weights[:, start_i:end_i] + 1
+
+                    output = torch.sum(resulton, dim=0, keepdim=True) / weights
 
             # Apply detection threshold based on vector norm
             if config.dataset_multi_track:

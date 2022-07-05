@@ -156,6 +156,30 @@ train
 4
 144000
 
+
+-c
+./configs/run_debug.yaml
+--num_iters
+10000
+--logging_interval
+1000
+--dataset_trim_wavs
+-1
+--model
+samplecnn
+--dataset_chunk_size_seconds
+1.27
+--model_features_transform
+stft_iv
+--model_rotations
+--model_augmentation
+--mode
+train
+--input_shape
+4
+144000
+
+
 This are commands that I can call from the command line in vrgpu to do some manual profiling.
 The idea is to monitor the step time, and look in my excel file for comparison.
 ```bash

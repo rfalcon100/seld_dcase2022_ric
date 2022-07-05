@@ -590,10 +590,12 @@ def _get_padders(chunk_size_seconds: float = 1.27,
 
     audio_padding = {'padder': audio_padder,
                      'chunk_size': audio_chunk_size,
-                     'hop_size': audio_step_size}
+                     'hop_size': audio_step_size,
+                     'full_size': audio_full_size}
     labels_padding = {'padder': labels_padder,
                      'chunk_size': labels_chunk_size,
-                     'hop_size': labels_step_size}
+                     'hop_size': labels_step_size,
+                     'full_size': labels_full_size}
     return audio_padding, labels_padding
 
 def test_validation_clean():
