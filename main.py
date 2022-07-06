@@ -211,13 +211,15 @@ def main():
         features_transform = None
     print(features_transform)
 
-    if config.exp_name == 'no_aug' or not config.model_augmentation:
-        augmentation_transform = None
-        augmentation_transform_post = None
-    else:
+    if config.model_spatialmixup:
         augmentation_transform = get_augmentation(device=device).to(device)
-        #augmentation_transform_post = get_audiomentations().to(device)
+    else:
+        augmentation_transform = None
+
+    if config.model_augmentation:
         augmentation_transform_post = RandomAugmentations(p_comp=0.0).to(device)
+    else:
+        augmentation_transform_post = None
 
     if config.model_rotations:
         rotations_transform = get_rotations(device=device).to(device)

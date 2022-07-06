@@ -95,6 +95,7 @@ def get_parameters():
     # Model arguments
     p.add_argument('--model', help='Model to use.')
     p.add_argument('--model_features_transform', help='Features transform to use in the model')
+    p.add_argument('--model_spatialmixup', action='store_true', help='Enables spatial mixuo as data augmentation.')
     p.add_argument('--model_augmentation', action='store_true', help='Enable data augmentation in audio domain')
     p.add_argument('--model_rotations', action='store_true', help='Enable soundfiled rotations for audio and labels.')
     p.add_argument('--model_loss_fn', help='Loss function.', choices=['mse', 'bce'])
@@ -179,8 +180,11 @@ def get_parameters():
 
         wandb_config = {
             "model": params['model'],
+            "model_spatialmixup": params['model_spatialmixup'],
             "model_augmentation": params['model_augmentation'],
+            "model_rotations": params['model_rotations'],
             "model_features_transform": params['model_features_transform'],
+            "use_mixup": params['use_mixup'],
             "model_loss_fn": params['model_loss_fn'],
             "job_id": params['job_id'],
             "num_workers": params['num_workers'],
