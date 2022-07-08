@@ -197,6 +197,29 @@ def get_rotation_matrix(rotation_phi, rotation_theta, rotation_psi) -> torch.Ten
     R = torch.matmul(torch.matmul(roll, pitch), yaw)
     return R
 
+def get_noise_signal(t_seconds=3, fs=48000, order=1, sources_gain=[1, 0.6], sources_direction=[(0, np.pi / 2), (np.pi / 2, np.pi / 4)]):
+    """ Generates a white noise signal in spherical harmonic domain with the selcted number of noise sources.
+    This is useful to visualize the rms , but a bit difficult to listen to
+    """
+    from numpy.random import default_rng
+    rng = default_rng()
+    grid = spa.grids.load_t_design(degree=4)
+    tmp_directions = vecs2dirs(grid)
+
+    # Add noise_floor
+    sig = 1 * rng.standard_normal((t_seconds * fs, (order + 1) ** 2))
+    sig = 0
+    # Add sources
+    for ii, gain in enumerate(sources_gain):
+        # tmp_source = 1 * rng.standard_normal((t_seconds*fs, 1)) * spa.sph.sh_matrix(params['order_input'], tmp_directions[ii + 1,0], tmp_directions[ii + 1,1], 'real').conj()
+        tmp_source = gain * rng.standard_normal((t_seconds * fs, 1)) * spa.sph.sh_matrix(order, sources_direction[ii][0],
+                                                                                         sources_direction[ii][1], 'real').conj()
+        sig += tmp_source
+    sig = sig.T
+    sig = sig / np.max(np.abs(sig))  # normalize
+
+    return sig
+
 def load_SOFA(order, filename='data/HRIR_L2354.sofa', url='http://sofacoustics.org/data/database/thk/HRIR_L2354.sofa'):
     """ Returns the selected HRTF sofa file encoded in spherical harmonics domain 
     This downloads the sofa file is needed. 

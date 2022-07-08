@@ -6,13 +6,16 @@ Author: Ricardo Falcon
 '''
 
 import torch
-import torchaudio
+import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
-import math
+import pandas as pd
 from typing import Iterable, Tuple, TypeVar, Callable, Any, List, Union
 from matplotlib.colors import to_rgb
+import seaborn as sns
+sns.set_theme(context='notebook', style='darkgrid', palette='deep', font='sans-serif',
+              font_scale=1, color_codes=True, rc={'pcolor.shading': 'auto'})
 
 import utils
 import spaudiopy as spa
@@ -785,3 +788,76 @@ def sh_rms_map_mollweide(F_nm, INDB=False, w_n=None, SH_type=None, azi_steps=5, 
 
     if return_values:
         return np.min(rms_d), np.max(rms_d)
+
+
+def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex', title='',
+                              log_scale=True, bins=15, gridsize=15, kde_fill=True, kde_levels=8, cmin=0):
+    """ This plots the bivariate distribution for azimuth and elevation, with marginal distributions
+    for each.
+    Options:
+        type: ['hex', 'kde', 'hist']
+        log_scale: [True, False]  --> log scale for the count (not the axis)
+        kde_fill: [True, False]   --> only for kde
+        kde_levels: int  ---> only for kde
+        bins = 15  --> for the maginals
+        gridsize = 15  , when using kde, it might be good to go higher, 100 or so.
+        cmin = 0 , ---> min value to display, set to > 0 when using linear scale to get rid of the black background
+
+    Some refrences that are useful for the formatting of the plots:
+    https://stackoverflow.com/questions/60947113/seaborn-kdeplot-colorbar
+    https://stackoverflow.com/questions/36898008/seaborn-heatmap-with-logarithmic-scale-colorbar
+    https://stackoverflow.com/questions/63895392/seaborn-is-not-plotting-within-defined-subplots
+    https://stackoverflow.com/questions/21197774/assign-pandas-dataframe-column-dtypes
+
+    """
+    assert len(points.shape) == 2 and points.shape[-1] == 3, 'ERROR: Wrong shape for input points, should be [n_points, 3]'
+
+    points_sph = utils.vecs2dirs(points.squeeze(), use_elevation=True, include_r=True)
+    points_sph = np.round(points_sph, decimals=6)  # This is to fix rounding errors with R
+    if points_sph.shape[0] > 1e6:
+        warnings.warn('WARNING: There are more then 1M points. Evaluating histograms might take a while.')
+
+    df = pd.DataFrame(points_sph, columns=['azimuth', 'Elevation', 'R'])
+    counts = np.histogram2d(x=df['azimuth'], y=df['Elevation'], bins=bins, range=[(0, 2 * np.pi), (-np.pi / 2, np.pi / 2)])
+    if log_scale:
+        log_counts = np.log10(counts[0] + 1e-8)
+        ticks = 10 ** np.ceil(np.linspace(log_counts[0].min(), log_counts[0].max(), 10, endpoint=True))
+        cbar_label = 'log10(n)'
+    else:
+        ticks = np.linspace(counts[0].min(), counts[0].max(), 10, endpoint=True)
+        cbar_label = 'Count'
+
+    # Plot starts here
+    fig = plt.figure()
+    g = sns.JointGrid(data=df, x="azimuth", y="Elevation")
+    g.plot_marginals(sns.histplot, bins=bins, element="step", color="#03012d")
+    ax = g.fig.axes[0]
+    if type == 'hex':
+        bins_scale = 'log' if log_scale else None
+        hb = ax.hexbin(x=df['azimuth'], y=df['Elevation'], gridsize=gridsize, bins=bins_scale, cmap='magma', extent=(0, 2 * np.pi, -np.pi / 2, np.pi / 2), mincnt=cmin)
+        ax.axis([0, 2 * np.pi, -np.pi / 2, np.pi / 2])
+    elif type == 'hist':
+        from matplotlib.colors import LogNorm
+        normalizer = LogNorm(vmin=10e-1, vmax=ticks[-1]) if log_scale else None
+        _, _, _, hb = ax.hist2d(x=df['azimuth'], y=df['Elevation'], bins=gridsize, cmap='magma', range=((0, 2 * np.pi), (-np.pi / 2, np.pi / 2)), norm=normalizer, cmin=cmin)
+        ax.grid()
+    elif type == 'kde':
+        if log_scale: raise ValueError('Log scale is not supported when using KDE')
+        hb = g.plot_joint(sns.kdeplot, cmap='magma', levels=kde_levels, cbar=True, fill=kde_fill, gridsize=gridsize)
+        ax.axis([0, 2 * np.pi, -np.pi / 2, np.pi / 2])
+    if type == 'hex' or type == 'hist':
+        cb = fig.colorbar(hb, ax=ax, ticks=ticks)
+        cb.set_label(cbar_label)
+        g.fig.axes[-1] = cb  # doe snot work
+    plt.subplots_adjust(left=0.15, right=0.8, top=0.9, bottom=0.1)
+    pos_joint_ax = g.ax_joint.get_position()
+    pos_marg_x_ax = g.ax_marg_x.get_position()
+    g.ax_joint.set_position([pos_joint_ax.x0, pos_joint_ax.y0, pos_marg_x_ax.width, pos_joint_ax.height])
+    g.fig.axes[-1].set_position([.83, pos_joint_ax.y0, .07, pos_joint_ax.height])
+    if type == 'kde':
+        cbar_ticks = g.fig.axes[-1].get_yticks()
+        _, cbar_max = g.fig.axes[-1].get_ylim()
+        g.fig.axes[-1].set_yticklabels([f'{t / cbar_max * 100:.1f} %' for t in cbar_ticks])
+    plt.tight_layout()
+    plt.suptitle(title)
+    plt.show()
