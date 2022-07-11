@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torchaudio
 from dataset.dcase_dataset import DCASE_SELD_Dataset
+
+
 def BasicSTFT():
     spectrogram_transform = nn.Sequential(
         torchaudio.transforms.Spectrogram(n_fft=512,
@@ -21,10 +23,10 @@ def my_feature():
 
     return spectrogram_transform
 
-class my_feature(nn.Sequential):
-    def __init__(self):
-        super(my_feature, self).__init__()
-        self.stft = torchaudio.transforms.Spectrogram(n_fft=512,
+class Feature_StftPlusIV(nn.Sequential):
+    def __init__(self, nfft=512):
+        super(Feature_StftPlusIV, self).__init__()
+        self.stft = torchaudio.transforms.Spectrogram(n_fft=nfft,
                                           hop_length=240,
                                           power=None)
         self.eps = 1e-10
@@ -36,47 +38,125 @@ class my_feature(nn.Sequential):
         #phase = tmp.angle()
         #phase_diff = torch.diff(phase, dim=-3)
 
-        with torch.no_grad():
-            tmp = self.stft(input)
-            mag = 20 * torch.log10(tmp.abs() + self.eps)
-            mag = torch.clamp(mag, self.clamp_min)
-            mag = mag / mag.abs().max()
-            #phase = tmp.angle()
-            #phase_diff = torch.cos(torch.diff(phase, dim=-3))
-            foa_iv = _get_foa_intensity_vectors_pytorch(tmp)
-            output = torch.concat([mag, foa_iv], dim=-3)
-            if torch.any(torch.isnan(output)):
-                warnings.warn('WARNING: NaNs when computing features.')
+        tmp = self.stft(input)
+        mag = 20 * torch.log10(tmp.abs() + self.eps)
+        mag = torch.clamp(mag, self.clamp_min)
+        mag = mag / mag.abs().max()
+        #phase = tmp.angle()
+        #phase_diff = torch.cos(torch.diff(phase, dim=-3))
+        foa_iv = _get_foa_intensity_vectors_pytorch(tmp)
+        output = torch.concat([mag, foa_iv], dim=-3)
+        if torch.any(torch.isnan(output)):
+            warnings.warn('WARNING: NaNs when computing features.')
         return output
 
-def test_my_feature():
+
+class Feature_MelPlusPhase(nn.Sequential):
+    """ Mel Spectoram with interchannel phase differencefeatures"""
+    def __init__(self, normalize_specs=True, n_mels=86, nfft=1024):
+        super(Feature_MelPlusPhase, self).__init__()
+        self.stft = torchaudio.transforms.Spectrogram(n_fft=nfft,
+                                          hop_length=240,
+                                          power=None)
+        self.mel_scale = torchaudio.transforms.MelScale(n_mels=n_mels, sample_rate=24000, f_min=0.0, f_max=None, n_stft=nfft // 2 + 1, norm=None)
+        self.eps = 1e-10
+        self.clamp_min = -80
+        self.normalize_specs = normalize_specs
+
+    def forward(self, input):
+        tmp = self.stft(input)
+        mag = tmp.abs()
+        mag = self.mel_scale(mag)
+        div = torch.amax(mag, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
+        mag = 20 * torch.log10((mag + self.eps) / div)
+        mag = torch.clamp(mag, self.clamp_min)
+        if self.normalize_specs:
+            t = torch.tensor(self.clamp_min)
+            mag = mag / t.abs()  # [-1, 0] range
+            mag = mag * 2 + 1  # [-1, 1] range
+
+        phase = tmp.angle()
+        phase = self.mel_scale(phase)
+        phase_diff = torch.cos(torch.diff(phase, dim=-3))
+        output = torch.concat([mag, phase_diff], dim=-3)
+        if torch.any(torch.isnan(output)):
+            warnings.warn('WARNING: NaNs when computing features.')
+        return output
+
+class Feature_MelPlusIV(nn.Sequential):
+    """ Mel Spectoram with interchannel phase differencefeatures"""
+    def __init__(self, normalize_specs=True, n_mels=86, nfft=1024):
+        super(Feature_MelPlusIV, self).__init__()
+        self.stft = torchaudio.transforms.Spectrogram(n_fft=nfft,
+                                          hop_length=240,
+                                          power=None)
+        self.mel_scale = torchaudio.transforms.MelScale(n_mels=n_mels, sample_rate=24000, f_min=0.0, f_max=None, n_stft=nfft // 2 + 1, norm=None)
+        self.eps = 1e-10
+        self.clamp_min = -80
+        self.normalize_specs = normalize_specs
+
+    def forward(self, input):
+        tmp = self.stft(input)
+        mag = tmp.abs()
+        mag = self.mel_scale(mag)
+        div = torch.amax(mag, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
+        mag = 20 * torch.log10((mag + self.eps) / div)
+        mag = torch.clamp(mag, self.clamp_min)
+        if self.normalize_specs:
+            t = torch.tensor(self.clamp_min)
+            mag = mag / t.abs()  # [-1, 0] range
+            mag = mag * 2 + 1  # [-1, 1] range
+
+        foa_iv = _get_foa_intensity_vectors_pytorch(tmp)
+        foa_iv = self.mel_scale(foa_iv)
+        if self.normalize_specs:
+            div = torch.amax(foa_iv, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
+            foa_iv = foa_iv / div
+        output = torch.concat([mag, foa_iv], dim=-3)
+        if torch.any(torch.isnan(output)):
+            warnings.warn('WARNING: NaNs when computing features.')
+        return output
+
+def test_my_features():
+    import plots
     dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
                                  list_dataset='dcase2022_devtrain_debug.txt',
                                  chunk_size=int(24000 * 1.27),
                                  chunk_mode='fixed',
                                  trim_wavs=30,
                                  return_fname=False)
-    transform = my_feature()
+    audio, labels = dataset[1]
+    plots.plot_labels(labels)
 
-    audio, labels = dataset[0]
-    feature = transform(audio[None,...])
-    test_plot_mine(feature[0])
+    # Feature_StftPlusIV
+    transform = Feature_StftPlusIV()
+    feature = transform(audio[None, ...])
+    plots.plot_stft_features(feature[0], title='Feature_StftPlusIV')
+
+    # Feature_MelPlusPhase
+    transform = Feature_MelPlusPhase()
+    audio, labels = dataset[1]
+    feature = transform(audio[None, ...])
+    plots.plot_stft_features(feature[0], title='Feature_MelPlusPhase')
+
+    # Feature_MelPlusIV
+    transform = Feature_MelPlusIV()
+    audio, labels = dataset[1]
+    feature = transform(audio[None, ...])
+    plots.plot_stft_features(feature[0], title='Feature_MelPlusIV')
+
+    # Torchaudio melspec to compare my melspec implementation
+    tform = nn.Sequential(
+        torchaudio.transforms.MelSpectrogram(sample_rate=24000,
+                                             n_fft=512,
+                                             hop_length=240,
+                                             n_mels=64),
+        torchaudio.transforms.AmplitudeToDB())
+    feature = tform(audio[None, ...])
+    torch.max(feature.permute(1, 0, 2, 3).reshape(4, -1), dim=1)  # Get the max of each channel, for noramlization
+    plots.plot_stft_features(feature[0], share_colorbar=False, title='TorchaudioMelSpec')
 
     return 0
-
-
-def test_plot_mine(feature):
-    import plots
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    #plots.plot_specgram(mag, sample_rate=24000)
-
-    fig, ax = plt.subplots(feature.shape[-3], 1, figsize=(12,12))
-    for i in range(feature.shape[-3]):
-        aa = ax[i].matshow(feature[i, :, :], aspect='auto', origin='lower', cmap='magma')
-        fig.colorbar(aa, ax=ax[i], location='right')
-    plt.tight_layout()
-    plt.show()
 
 
 def test_plot_plt():
@@ -90,44 +170,9 @@ def test_plot_plt():
     plt.show()
 
 
-def test_plot_kinda_workds(audio):
-    stft = torchaudio.transforms.Spectrogram(n_fft=512,
-                                                  hop_length=240,
-                                                  power=None)
-
-    tmp = stft(audio)
-    mag = 20 * torch.log10(tmp.abs())
-    phase = tmp.angle()
-    phase_diff = torch.cos(torch.diff(phase, dim=-3))
-
-    foa_iv = _get_foa_intensity_vectors_pytorch(tmp)
-
-    import plots
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    # plots.plot_specgram(mag, sample_rate=24000)
-
-    fig, ax = plt.subplots(7, 1, figsize=(12, 12))
-    aa = ax[0].matshow(mag[0, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[0], location='right')
-    aa = ax[1].matshow(mag[1, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[1], location='right')
-    aa = ax[2].matshow(mag[2, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[2], location='right')
-    aa = ax[3].matshow(mag[3, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[3], location='right')
-    aa = ax[4].matshow(foa_iv[0, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[4], location='right')
-    aa = ax[5].matshow(foa_iv[1, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[5], location='right')
-    aa = ax[6].matshow(foa_iv[2, :, :], aspect='auto', origin='lower', cmap='magma')
-    fig.colorbar(aa, ax=ax[6], location='right')
-    plt.tight_layout()
-    plt.show()
 
 def _get_foa_intensity_vectors(self, linear_spectra):
-    """ From the baseline
+    """ From the baseline, copied as refrerence
         #Input is [frames, freqs, channels]
     # I is [frames, freqs, 3], so all the other channels
     """
@@ -150,7 +195,6 @@ def _get_foa_intensity_vectors_pytorch(linear_spectra):
     E = eps + (W.abs()**2 + ((linear_spectra[..., 1:, :, :].abs()**2).sum(dim=-3)) / 3.0)
 
     I_norm = I / E[:, None, ...]
-    I_norm_mel = 0
     foa_iv = I_norm
     if torch.any(torch.isnan(foa_iv)):
         print('Feature extraction is generating nan outputs')
@@ -158,6 +202,6 @@ def _get_foa_intensity_vectors_pytorch(linear_spectra):
     return foa_iv
 
 if __name__ == '__main__':
-    test_my_feature()  # seems to work ok, but no mels
+    test_my_features()  # seems to work ok, but no mels
 
 

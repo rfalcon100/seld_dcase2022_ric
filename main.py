@@ -21,7 +21,7 @@ from dataset.dcase_dataset import DCASE_SELD_Dataset, InfiniteDataLoader, _get_p
 from evaluation.dcase2022_metrics import cls_compute_seld_results
 from evaluation.evaluation_dcase2022 import write_output_format_file, get_accdoa_labels, get_multi_accdoa_labels, determine_similar_location, all_seld_eval
 from solver import Solver
-from feature import my_feature
+from feature import Feature_StftPlusIV, Feature_MelPlusPhase, Feature_MelPlusIV
 
 import augmentation.spatial_mixup as spm
 import torch_audiomentations as t_aug
@@ -42,7 +42,7 @@ def get_dataset(config):
                                          trim_wavs=config.dataset_trim_wavs,
                                          multi_track=config.dataset_multi_track,
                                          num_classes=config.unique_classes,
-                                         labels_backend='sony',
+                                         labels_backend=config.dataset_backend,
                                          return_fname=False)
         datasets_train.append(dataset_tmp)
     dataset_train = torch.utils.data.ConcatDataset(datasets_train)
@@ -56,7 +56,7 @@ def get_dataset(config):
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
-                                       labels_backend='sony',
+                                       labels_backend=config.dataset_backend,
                                        return_fname=True)
 
     return dataloader_train, dataset_valid
@@ -192,21 +192,13 @@ def main():
     # Solver
     solver = Solver(config=config, tensorboard_writer=writer)
 
-    features_transform = nn.Sequential(
-        torchaudio.transforms.MelSpectrogram(sample_rate=24000,
-                                             n_fft=512,
-                                             hop_length=240,
-                                             n_mels=96),
-        torchaudio.transforms.AmplitudeToDB()).to(device)
-
-    features_transform = nn.Sequential(
-        torchaudio.transforms.Spectrogram(n_fft=512,
-                                         hop_length=240),
-        torchaudio.transforms.AmplitudeToDB()).to(device)
-
     # Select features and augmentation
     if config.model_features_transform == 'stft_iv':
-        features_transform = my_feature().to(device)  # mag STFT with intensity vectors
+        features_transform = Feature_StftPlusIV(nfft=512).to(device)  # mag STFT with intensity vectors
+    elif config.model_features_transform == 'mel_iv':
+        features_transform = Feature_MelPlusIV().to(device)  # mel spec with intensity vectors
+    elif config.model_features_transform == 'mel_phase':
+        features_transform = Feature_MelPlusPhase().to(device)  # mel spec with phase difference
     else:
         features_transform = None
     print(features_transform)
@@ -285,13 +277,14 @@ def main():
                                                               solver=solver, writer=writer,
                                                               dcase_output_folder=config['directory_output_results'])
                 curr_time = time.time() - start_time
+                print(f'Evaluating using overlap = 1 / {config["evaluation_overlap_fraction"]}')
                 print(
                     'iteration: {}/{}, time: {:0.2f}, '
                     'train_loss: {:0.4f}, val_loss: {:0.4f}, '
                     'ER/F/LE/LR/SELD: {}, '.format(
                         iter_idx, config.num_iters, curr_time,
                         train_loss, val_loss,
-                        '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]),))
+                        '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics[0:5]),))
 
                 print('\n Classwise results on validation data')
                 print('Class\tER\t\tF\t\tLE\t\tLR\t\tSELD_score')
@@ -354,20 +347,11 @@ def main():
         checkpoints_path = ['dcase2022_plus_dcase22-sim_no-aug_mixup_b32_-5440404_n-work:0_samplecnn_batchnorm_144000__2022-06-18-201151']
         checkpoints_name = 'model_step_90000.pth'
 
-        checkpoints_path = ['dcase22_plus_dcase22-sim_w-aug-5405063_n-work:0_crnn10_batchnorm_30480__2022-06-15-195028']
-        checkpoints_name = 'model_step_100000.pth'
+        checkpoints_path = ['third-2021-crnn10-2.55_spm+aug-5761546_n-work:0_crnn10_batchnorm_61200__2022-07-05-212417']
+        checkpoints_name = 'model_step_10000.pth'
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
-        solver = Solver(config=config, model_checkpoint=checkpoint)
-
-        dataset_valid = DCASE_SELD_Dataset(directory_root=config.dataset_root_valid,
-                                          list_dataset=config.dataset_list_valid,
-                                          chunk_size=config.dataset_chunk_size,
-                                          chunk_mode='full',
-                                          trim_wavs=config.dataset_trim_wavs,
-                                          multi_track=config.dataset_multi_track,
-                                          num_classes=config.unique_classes,
-                                          return_fname=True,
-                                          ignore_labels=False)
+        #solver = Solver(config=config, model_checkpoint=checkpoint)
+        solver = Solver(config=config)  # TODO this is for loss upper bound only
 
         seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
                                                       device=device, features_transform=features_transform,
@@ -375,19 +359,20 @@ def main():
                                                       dcase_output_folder=config['directory_output_results'],
                                                       detection_threshold=config['detection_threshold'])
         curr_time = time.time() - start_time
+        print(f'Evaluating using overlap = 1 / {config["evaluation_overlap_fraction"]}')
         print(
             'iteration: {}/{}, time: {:0.2f}, '
             'train_loss: {:0.4f}, val_loss: {:0.4f}, '
             'ER/F/LE/LR/SELD: {}, '.format(
                 0, config.num_iters, curr_time,
                 train_loss, val_loss,
-                '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(*seld_metrics[0:5]), ))
+                '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics[0:5]), ))
 
         print('\n Classwise results on validation data')
         print('Class\tER\t\tF\t\tLE\t\tLR\t\tSELD_score')
         seld_metrics_class_wise = seld_metrics[5]
         for cls_cnt in range(config['unique_classes']):
-            print('{}\t\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt,
+            print('{}\t\t{:0.2}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.4f}'.format(cls_cnt,
                                                                              seld_metrics_class_wise[0][cls_cnt],
                                                                              seld_metrics_class_wise[1][cls_cnt],
                                                                              seld_metrics_class_wise[2][cls_cnt],
@@ -403,21 +388,22 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     x, target = x.to(device), target.to(device)
 
     # Rotaiton, Augmentation and Feature extraction
-    if rotation_transform is not None:
-        rotation_transform.reset_R()
-        x, target = rotation_transform(x, target)
-    if augmentation_transform is not None:
-        augmentation_transform.reset_G(G_type='spherical_cap_soft')
-        if False:  # Debugging
-            augmentation_transform.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
-        x = augmentation_transform(x)
-    if augmentation_transform_post is not None:
-        augmentation_transform_post = RandomAugmentations(p_comp=solver.get_curriculum_params())
-        x = augmentation_transform_post(x)
-    if features_transform is not None:
-        x = features_transform(x)
-    if target_transform is not None:
-        target = target_transform(target)
+    with torch.no_grad():
+        if rotation_transform is not None:
+            rotation_transform.reset_R()
+            x, target = rotation_transform(x, target)
+        if augmentation_transform is not None:
+            augmentation_transform.reset_G(G_type='spherical_cap_soft')
+            if False:  # Debugging
+                augmentation_transform.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
+            x = augmentation_transform(x)
+        if augmentation_transform_post is not None:
+            augmentation_transform_post = RandomAugmentations(p_comp=solver.get_curriculum_params())
+            x = augmentation_transform_post(x)
+        if features_transform is not None:
+            x = features_transform(x)
+        if target_transform is not None:
+            target = target_transform(target)
     solver.set_input(x, target)
     solver.train_step()
     solver.curriculum_scheduler_step(iter_idx)
@@ -495,7 +481,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
     model = solver.predictor
     model.eval()
     file_cnt = 0
-    overlap = 1  # defualt should be 1  TODO, onluy works for 1 and 0.5
+    overlap = 1 / config['evaluation_overlap_fraction']  # defualt should be 1  TODO, onluy works for up to 1/32 , when the labels are 128 frames long.
 
     print(f'Validation: {len(dataset)} fnames in dataset.')
     with torch.no_grad():
@@ -529,6 +515,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
 
             full_output = []
             full_loss = []
+            full_labels = []
             tmp = torch.utils.data.TensorDataset(audio_chunks, labels_chunks)
             loader = DataLoader(tmp, batch_size=1, shuffle=False, drop_last=False)  # Loader per wav to get batches
             for ctr, (audio, labels) in enumerate(loader):
@@ -537,9 +524,12 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 if target_transform is not None:
                     labels = target_transform(labels)
                 output = model(audio)
+                ###output = torch.zeros_like(labels)  # TODO This is just to get the upper bound of the loss
+                ###output = torch.zeros(size=(labels.shape[0], labels.shape[1], 3*3*12), device=device)  # TODO This is just to get the upper bound of the loss wih mACCDOA
                 loss = solver.loss_fns[solver.loss_names[0]](output, labels)
                 full_output.append(output)
                 full_loss.append(loss)
+                ###full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
 
             # Concatenate chunks across timesteps into final predictions
             if config.dataset_multi_track:
@@ -547,19 +537,25 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             else:
                 if overlap == 1:
                     output = torch.concat(full_output, dim=-1)
+                    ###output = torch.concat(full_labels, dim=-1)   # TODO This is just to get the upper bound of the loss
                 else:
-                    # TODO: this is not ready
+                    # TODO: maybe this is ready now? at least until overlap 1/32
+                    # TODO: No, it only works when validating the ground truth labels, but not the final predictions
                     # Rebuild when using overlap
                     # This is basically a folding operation, using an average of the predictions of each overlapped chunk
                     aa = len(full_output) - 1
+                    ###full_output = full_labels # TODO This is just to get the upper bound of the loss
                     resulton = torch.zeros(aa, labels.shape[-3], labels.shape[-2], labels_padding['full_size'] + labels_padding['padder'].padding[-3])
                     weights = torch.zeros(1, labels_padding['full_size'] + labels_padding['padder'].padding[-3])
                     for ii in range(0, aa):
                         #print(ii)
                         start_i = ii * labels_padding['hop_size']
-                        end_i = start_i + round(labels_padding['hop_size'] * 1/overlap)
+                        end_i = start_i + round(labels_padding['hop_size'] * 1/1)
                         #yolingon = full_output[ii][0]
-                        resulton[ii, :, :, start_i:end_i] = full_output[ii][0]
+                        try:
+                            resulton[ii, :, :, start_i:end_i] = full_output[ii][0]
+                        except:
+                            a = 1
                         weights[:, start_i:end_i] = weights[:, start_i:end_i] + 1
 
                     output = torch.sum(resulton, dim=0, keepdim=True) / weights

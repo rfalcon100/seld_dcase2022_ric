@@ -5,9 +5,9 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --mem 80G
 ##SBATCH --time 0-0:30:00
-#SBATCH --time 0-12:00:00
+#SBATCH --time 0-13:00:00
 #SBATCH -o "slurm/train_%A_%a.out"
-#SBATCH --array=0-7
+#SBATCH --array=0-5
 
 # April01, table 01
 case $SLURM_ARRAY_TASK_ID in

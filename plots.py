@@ -74,32 +74,40 @@ def plot_waveform(waveform: torch.Tensor, sample_rate: int, title: str = "Wavefo
     plt.show()
 
 
-def plot_specgram_features(features, sample_rate, title="Spectrograms", xlim=None):
-    features = features.numpy()
-    assert len(features.shape) == 3, 'ERROR, plotting spectrograms does not support batches.'
+def plot_stft_features(feature, share_colorbar=True, title=None):
+    """ Plots time-frequency features. This is useful to visualize for example: stft + intensity_vector
+    The shared colorbar is just for visualization, to compare the colors of the different channels.
+    But it does not change the values.
 
+    Pass stft features like [channels, freqs, frames]
+    """
+    #features = features.numpy()
     #num_channels, num_frames = feature.shape
     #time_axis = torch.arange(0, num_frames) / sample_rate
+    assert len(feature.shape) == 3, 'ERROR, plotting spectrograms does not support batches.'
 
-    fig, ax = plt.subplots(features.shape[-3], 1, figsize=(12,12))
-    for i in range(features.shape[-3]):
-        aa = ax[i].matshow(features[i, :, :], aspect='auto', origin='lower', cmap='magma')
+    if share_colorbar:
+        if feature.shape[0] > 4:
+            warnings.warn('WARNING: Plotting with shared colorbar is weird when the input features has more than 4 channels. I was expecting STFT + IV or similar')
+        vmin_stft, vmax_stft = torch.min(feature[0:4]), torch.max(feature[0:4])
+        vmin_phase, vmax_phase = torch.min(feature[4:-1]), torch.max(feature[4:-1])
+    else:
+        vmin_stft, vmax_stft = None, None
+        vmin_phase, vmax_phase = None, None
+
+    fig, ax = plt.subplots(feature.shape[-3], 1, figsize=(12,12))
+    for i in range(feature.shape[-3]):
+        if i in range(4):
+            vmin, vmax = vmin_stft, vmax_stft
+        else:
+            vmin, vmax = vmin_phase, vmax_phase
+        aa = ax[i].matshow(feature[i, :, :], aspect='auto', origin='lower', cmap='magma', vmin=vmin, vmax=vmax)
         fig.colorbar(aa, ax=ax[i], location='right')
+        ax[i].grid(False)
     plt.tight_layout()
-    fig.suptitle(title)
+    if title is not None:
+        plt.suptitle(title)
     plt.show()
-    if False:
-        if num_channels == 1:
-            axes = [axes]
-        for c in range(num_channels):
-            axes[c].specgram(waveform[c], Fs=sample_rate)
-            if num_channels > 1:
-                axes[c].set_ylabel(f'Channel {c+1}')
-            if xlim:
-                axes[c].set_xlim(xlim)
-        figure.suptitle(title)
-        plt.show(block=False)
-
 
 def plot_3dpoints(points: torch.Tensor, title: str = 'Grid of points',
                   xlim: List = None, ylim: List = None, zlim: List = None, fig=None):
@@ -789,7 +797,6 @@ def sh_rms_map_mollweide(F_nm, INDB=False, w_n=None, SH_type=None, azi_steps=5, 
     if return_values:
         return np.min(rms_d), np.max(rms_d)
 
-
 def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex', title='',
                               log_scale=True, bins=15, gridsize=15, kde_fill=True, kde_levels=8, cmin=0):
     """ This plots the bivariate distribution for azimuth and elevation, with marginal distributions
@@ -803,7 +810,7 @@ def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex
         gridsize = 15  , when using kde, it might be good to go higher, 100 or so.
         cmin = 0 , ---> min value to display, set to > 0 when using linear scale to get rid of the black background
 
-    Some refrences that are useful for the formatting of the plots:
+    Some references that are very useful for formatting of these plots:
     https://stackoverflow.com/questions/60947113/seaborn-kdeplot-colorbar
     https://stackoverflow.com/questions/36898008/seaborn-heatmap-with-logarithmic-scale-colorbar
     https://stackoverflow.com/questions/63895392/seaborn-is-not-plotting-within-defined-subplots

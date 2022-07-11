@@ -41,6 +41,7 @@ output_shape: [3, 12, 256]
 dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55, or 5.11
 dataset_chunk_mode: random        # ['random', 'fixed', 'full']
 dataset_multi_track: false
+dataset_backend: sony
 dataset_trim_wavs: -1
 dataset_root: ['/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3']
 dataset_list_train: ['dcase2021t3_foa_devtrain.txt']
@@ -49,3 +50,5 @@ dataset_list_valid: 'dcase2021t3_foa_devtest.txt'
 dataset_root_eval: '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3'
 dataset_list_eval: 'dcase2021t3_foa_evaltest.txt'
 
+#----------------------------------------------------------------------------------------------------------------
+evaluation_overlap_fraction: 1

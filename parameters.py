@@ -111,6 +111,7 @@ def get_parameters():
     p.add_argument('--dataset_chunk_size_seconds', type=float, help='Chunk size of the input audio, in seconds. For example 1.27, or 2.55.')
     p.add_argument('--dataset_chunk_mode', choices=['random', 'fixed', 'full'])
     p.add_argument('--dataset_multi_track', action='store_true')
+    p.add_argument('--dataset_backend', choices=['sony', 'baseline'], help='Backend code to parse and extract the labels from the CSVs. Important for the multitrack.')
     p.add_argument('--dataset_trim_wavs', type=int, help='Trim wavs to this value in seconds when loading. Use -1 to load full wavs.')
     p.add_argument('--dataset_root', nargs='+', type=str)
     p.add_argument('--dataset_list_train', nargs='+')
@@ -118,6 +119,9 @@ def get_parameters():
     p.add_argument('--dataset_list_valid')
     p.add_argument('--dataset_root_eval', help='Root path for the evaluation dataset. See helper.md for examples.')
     p.add_argument('--dataset_list_eval', help='File with wav filenames for the evaluation dataset. See helper.md for examples.')
+
+    # Evaluation arugments
+    p.add_argument('--evaluation_overlap_fraction', type=int, help='Fraction for overlap when doing the evaluation. Should be in multiples of the labels. So if the labels are 128 frames, we could use 32 here, so the hopsize would be 4 frames.')
 
     params = p.parse_args()
 
@@ -147,23 +151,6 @@ def get_parameters():
     params['logging_dir'] = f'{params["logging_dir"]}/{params["experiment_description"]}'
     params['directory_output_results'] = f'{params["logging_dir"]}/tmp_results'
 
-
-    # Results dir saves:
-    #   parameters.yaml
-
-    print("")
-    print("================ Experiment ================")
-    print(params['experiment_description'])
-    print("")
-
-    # Print the experiment config
-    ctr = 0
-    for k, v in params.items():
-        ctr += 1
-        if ctr % 10 == 0: print(' ')
-        print('{} \t {}'.format(k.ljust(15, ' '), v))
-    print("")
-
     # Save config to disk, create directories if needed
     if 'debug' in params['logging_dir'] and os.path.exists(params['logging_dir']):
         shutil.rmtree(params['logging_dir'])
@@ -173,7 +160,6 @@ def get_parameters():
         yaml.dump(params, f, default_flow_style=None)
     if not os.path.exists(params['directory_output_results']):
         os.mkdir(params['directory_output_results'])
-
 
     if params['wandb']:
         import wandb
@@ -199,6 +185,19 @@ def get_parameters():
                    config=wandb_config,
                    dir=params["logging_dir"],
                    sync_tensorboard=True)
+
+    print("")
+    print("================ Experiment ================")
+    print(params['experiment_description'])
+    print("")
+
+    # Print the experiment config
+    ctr = 0
+    for k, v in params.items():
+        ctr += 1
+        if ctr % 10 == 0: print(' ')
+        print('{} \t {}'.format(k.ljust(15, ' '), v))
+    print("")
 
     return EasyDict(params)
 
