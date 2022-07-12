@@ -267,11 +267,12 @@ def test_CRNN10():
     """ Quick test for the CRNN10 model"""
     import torch.optim as optim
     from torch.utils.data import DataLoader
-    from torchsummary import summary
+    #from torchsummary import summary
+    from torchinfo import summary
 
     learning_rate = 0.001
     datapoints, batch, epochs = 1, 1, 10000
-    input_shape = [1, 4, 257, 128]
+    input_shape = [1, 7, 257, 256]
     output_shape = [1, 3, 12, 128]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -287,7 +288,9 @@ def test_CRNN10():
 
     loss_f = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    summary(model, input_size=tuple(input_shape[-3:]))
+    #summary(model, input_size=tuple(input_shape[-3:]))
+    summary(model, input_size=tuple(input_shape), col_names=['input_size', 'output_size', 'kernel_size', 'num_params'],
+            row_settings=['var_names'])
 
     model.train()
     for epoch in range(epochs):

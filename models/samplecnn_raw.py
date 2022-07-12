@@ -247,10 +247,11 @@ class SampleCNN_GRU(nn.Module):
 
 
 def unit_test_samplecnn_raw():
-    """ Quick test for the CRNN10 model"""
+    """ Quick test for the Samplecnn model"""
     import torch.optim as optim
     from torch.utils.data import DataLoader
-    from torchsummary import summary
+    #from torchsummary import summary
+    from torchinfo import summary
 
     learning_rate = 0.0001
     datapoints, batch, epochs = 2, 2, 20000
@@ -267,12 +268,14 @@ def unit_test_samplecnn_raw():
 
     data = torch.utils.data.TensorDataset(x, y)
     dataloader = DataLoader(data, batch_size=batch)
-    #model = SampleCNN(output_timesteps=output_shape[-1]).to(device)
-    model = SampleCNN_GRU(output_timesteps=output_shape[-1]).to(device)
+    model = SampleCNN(output_timesteps=output_shape[-1]).to(device)
+    #model = SampleCNN_GRU(output_timesteps=output_shape[-1]).to(device)
 
     loss_f = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    summary(model, input_size=tuple(input_shape[-2:]))
+    #summary(model, input_size=tuple(input_shape[-2:]))
+    summary(model, input_size=tuple(input_shape), col_names=['input_size', 'output_size', 'kernel_size', 'num_params'],
+            row_settings=['var_names'])
 
     model.train()
     for epoch in range(epochs):
