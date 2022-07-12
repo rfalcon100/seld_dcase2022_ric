@@ -24,9 +24,10 @@ lr_patience_times: 3
 
 #----------------------------------------------------------------------------------------------------------------
 model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
-model_features_transform: stft_iv     # ['stft_iv', 'none']
+model_features_transform: stft_iv     # ['stft_iv', 'mel_iv', 'mel_base', 'none']
 model_spatialmixup: false
 model_augmentation: false
+model_spec_augmentation: false
 model_rotations: false
 model_loss_fn: mse      # ['mse', 'bce']
 model_normalization: batchnorm

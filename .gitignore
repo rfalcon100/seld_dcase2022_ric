@@ -1,3 +1,6 @@
 ./logging
 *__pycache__
-
+*.png
+./slurm
+*.ipynb_checkpoints/
+torch_audiomentations/augmentations/yolo.py

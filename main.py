@@ -136,7 +136,7 @@ class RandomAugmentations(nn.Sequential):
         mode = 'per_example'  # for speed, we use batch processing
         p_mode = 'per_example'
 
-        self.augmentations = t_aug.SomeOf((n_aug_min, n_aug_max), p=self.p_comp,
+        self.augmentations = t_aug.SomeOf((n_aug_min, n_aug_max), p=self.p_comp, output_type='dict',
                                       transforms=[
                                           t_aug.Gain(p=p, min_gain_in_db=-15.0, max_gain_in_db=6.0, mode=mode, p_mode=p_mode),
                                           t_aug.PolarityInversion(p=p, mode=mode, p_mode=p_mode),
@@ -175,6 +175,41 @@ class RandomAugmentations(nn.Sequential):
             output = output.squeeze(0)
         return output
 
+
+class RandomSpecAugmentations(nn.Sequential):
+    def __init__(self, fs=24000, p=1, p_comp=1, n_aug_min=1, n_aug_max=2):
+        super().__init__()
+        self.fs = fs
+        self.p = p
+        self.p_comp = p_comp
+        self.n_aug_min = n_aug_min
+        self.n_aug_max = n_aug_max
+        mode = 'per_example'  # for speed, we use batch processing
+        p_mode = 'per_example'
+
+        self.augmentations = t_aug.SomeOf((n_aug_min, n_aug_max), p=self.p_comp, output_type='dict',
+                                      transforms=[
+                                          t_aug.SpecTimeMasking(time_mask_param=24, iid_masks=True, p_proportion=0.3, p=p,
+                                                                mode=mode, p_mode=p_mode),
+                                          t_aug.SpecFreqMasking(freq_mask_param=24, iid_masks=True, p=p,
+                                                                mode=mode, p_mode=p_mode),
+                                      ]
+                                      )
+
+    def forward(self, input):
+        do_reshape = False
+        if input.shape == 2:
+            do_reshape = True
+            input = input[None, ...]  #  audiomentations expects batches
+
+        # Augmentations
+        output = self.augmentations(input)  # Returns ObjectDict
+        output = output['samples']
+
+        if do_reshape:
+            output = output.squeeze(0)
+        return output
+
 def main():
     # Get config
     config = get_parameters()
@@ -192,7 +227,12 @@ def main():
     # Solver
     solver = Solver(config=config, tensorboard_writer=writer)
 
-    # Select features and augmentation
+    # Select features and augmentation and rotation
+    augmentation_transform_spatial = None
+    augmentation_transform_audio = None
+    augmentation_transform_spec = None
+    rotations_transform = None
+
     if config.model_features_transform == 'stft_iv':
         features_transform = Feature_StftPlusIV(nfft=512).to(device)  # mag STFT with intensity vectors
     elif config.model_features_transform == 'mel_iv':
@@ -204,19 +244,13 @@ def main():
     print(features_transform)
 
     if config.model_spatialmixup:
-        augmentation_transform = get_augmentation(device=device).to(device)
-    else:
-        augmentation_transform = None
-
+        augmentation_transform_spatial = get_augmentation(device=device).to(device)
     if config.model_augmentation:
-        augmentation_transform_post = RandomAugmentations(p_comp=0.0).to(device)
-    else:
-        augmentation_transform_post = None
-
+        augmentation_transform_audio = RandomAugmentations(p_comp=0.0).to(device)
+    if config.model_spec_augmentation:
+        augmentation_transform_spec = RandomSpecAugmentations(p_comp=0.0).to(device)
     if config.model_rotations:
         rotations_transform = get_rotations(device=device).to(device)
-    else:
-        rotations_transform = None
 
     if 'samplecnn' in config.model:
         class t_transform(nn.Sequential):
@@ -228,9 +262,11 @@ def main():
         target_transform = t_transform()
     else:
         target_transform = None
+    print(target_transform)
     print(rotations_transform)
-    print(augmentation_transform)
-    print(augmentation_transform_post)
+    print(augmentation_transform_spatial)
+    print(augmentation_transform_audio)
+    print(augmentation_transform_spec)
 
     # Initial loss:
     x, target = dataloader_train.dataset[0]
@@ -243,6 +279,11 @@ def main():
     else:
         target = target[None, ...].to(device)
     solver.predictor.eval()
+
+    # To debug
+    #yolo = RandomSpecAugmentations()
+    #y = yolo(x)
+
     out = solver.predictor(x)
     loss = solver.loss_fns[solver.loss_names[0]](out, target)
     print('Initial loss = {:.6f}'.format(loss.item()))
@@ -264,8 +305,9 @@ def main():
             #solver = Solver(config=config, model_checkpoint=checkpoint)
 
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
-                                         device=device, features_transform=features_transform, augmentation_transform=augmentation_transform,
-                                         rotation_transform=rotations_transform, augmentation_transform_post=augmentation_transform_post,
+                                         device=device, features_transform=features_transform,
+                                         augmentation_transform_spatial=augmentation_transform_spatial, augmentation_transform_spec=augmentation_transform_spec,
+                                         rotation_transform=rotations_transform, augmentation_transform_audio=augmentation_transform_audio,
                                          target_transform=target_transform, solver=solver, writer=writer)
 
             if iter_idx % config.print_every == 0 and iter_idx > 0:
@@ -349,9 +391,15 @@ def main():
 
         checkpoints_path = ['third-2021-crnn10-2.55_spm+aug-5761546_n-work:0_crnn10_batchnorm_61200__2022-07-05-212417']
         checkpoints_name = 'model_step_10000.pth'
+
+        #checkpoints_path = ['six-2021-features-no-grad-crnn10-2.55_base_mel_iv+spm+aug+rot-5820412_n-work:0_crnn10_batchnorm_61200__2022-07-09-201438']
+        #checkpoints_name = 'model_step_200000.pth'
+        checkpoints_path = ['six-2021-features-no-grad-spec-crnn10-2.55_base_stft_iv+spm+aug+rot-5836347_n-work:0_crnn10_batchnorm_61200__2022-07-11-211006']
+        checkpoints_name = 'model_step_180000.pth'
+
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
-        #solver = Solver(config=config, model_checkpoint=checkpoint)
-        solver = Solver(config=config)  # TODO this is for loss upper bound only
+        solver = Solver(config=config, model_checkpoint=checkpoint)
+        #solver = Solver(config=config)  # TODO this is for loss upper bound only
 
         seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
                                                       device=device, features_transform=features_transform,
@@ -381,29 +429,34 @@ def main():
         print('================================================ \n')
 
 def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: [nn.Sequential, None],
-                    augmentation_transform: [nn.Sequential, None], rotation_transform: [nn.Sequential, None],
-                    augmentation_transform_post: [nn.Sequential, None], target_transform: [nn.Sequential, None], solver, writer):
+                    augmentation_transform_spatial: [nn.Sequential, None], rotation_transform: [nn.Sequential, None], augmentation_transform_spec: [nn.Sequential, None],
+                    augmentation_transform_audio: [nn.Sequential, None], target_transform: [nn.Sequential, None], solver, writer):
     # Training iteration
     x, target = data
     x, target = x.to(device), target.to(device)
 
-    # Rotaiton, Augmentation and Feature extraction
+    # Rotation, Augmentation and Feature extraction
     with torch.no_grad():
         if rotation_transform is not None:
             rotation_transform.reset_R()
             x, target = rotation_transform(x, target)
-        if augmentation_transform is not None:
-            augmentation_transform.reset_G(G_type='spherical_cap_soft')
+        if augmentation_transform_spatial is not None:
+            augmentation_transform_spatial.reset_G(G_type='spherical_cap_soft')
             if False:  # Debugging
-                augmentation_transform.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
-            x = augmentation_transform(x)
-        if augmentation_transform_post is not None:
-            augmentation_transform_post = RandomAugmentations(p_comp=solver.get_curriculum_params())
-            x = augmentation_transform_post(x)
+                augmentation_transform_spatial.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
+            x = augmentation_transform_spatial(x)
+        if augmentation_transform_audio is not None:
+            augmentation_transform_audio = RandomAugmentations(p_comp=solver.get_curriculum_params())
+            x = augmentation_transform_audio(x)
         if features_transform is not None:
             x = features_transform(x)
+            if augmentation_transform_spec is not None:
+                augmentation_transform_spec = RandomSpecAugmentations(p_comp=solver.get_curriculum_params())
+                x = augmentation_transform_spec(x)
         if target_transform is not None:
             target = target_transform(target)
+
+    # Train step
     solver.set_input(x, target)
     solver.train_step()
     solver.curriculum_scheduler_step(iter_idx)
@@ -431,7 +484,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
         writer.add_scalar('grad_norm/disc', grad_norm_model, step)
 
         # Scheduler
-        if augmentation_transform_post is not None:
+        if augmentation_transform_audio is not None:
             p_comp = solver.get_curriculum_params()
             writer.add_scalar('params/p_comp', p_comp, step)
 

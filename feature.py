@@ -159,6 +159,41 @@ def test_my_features():
     return 0
 
 
+
+def test_spec_augment():
+    import plots
+    dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 chunk_size=int(24000 * 1.27),
+                                 chunk_mode='fixed',
+                                 trim_wavs=30,
+                                 return_fname=False)
+    audio, labels = dataset[1]
+    plots.plot_labels(labels)
+
+    augment0 = nn.Sequential(
+        torchaudio.transforms.TimeMasking(time_mask_param=24, iid_masks=True, p=0.2),
+    )
+
+    augment1 = nn.Sequential(
+        torchaudio.transforms.FrequencyMasking(freq_mask_param=10, iid_masks=True)
+    )
+
+
+    # Feature_StftPlusIV
+    transform = Feature_StftPlusIV()
+    feature = transform(audio[None, ...])
+    feature = augment0(feature)
+    plots.plot_stft_features(feature[0], title='Feature_StftPlusIV')
+
+    # Feature_StftPlusIV
+    transform = Feature_StftPlusIV()
+    feature = transform(audio[None, ...])
+    feature = augment1(feature)
+    plots.plot_stft_features(feature[0], title='Feature_StftPlusIV')
+
+    return 0
+
 def test_plot_plt():
     import matplotlib.pyplot as plt
 

@@ -36,23 +36,23 @@ case $param in
     ;;
     3)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train --model_spatialmixup --model_augmentation --model_spec_augmentation --model_rotations \
+    --wandb --exp_name "crnn10-2.55_base_stft_iv+spm+aug+specaug+rot" --seed $seed --job_id $job_id
+    ;;
+    4)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
     -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train \
     --wandb --exp_name "crnn10-2.55_base_mel_iv" --seed $seed --job_id $job_id
     ;;
-    4)
+    5)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
     -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spatialmixup --model_augmentation --model_rotations \
     --wandb --exp_name "crnn10-2.55_base_mel_iv+spm+aug+rot" --seed $seed --job_id $job_id
     ;;
-    5)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_phase --mode train \
-    --wandb --exp_name "crnn10-2.55_base_mel_phase" --seed $seed --job_id $job_id
-    ;;
     6)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_phase --mode train --model_spatialmixup --model_augmentation --model_rotations \
-    --wandb --exp_name "crnn10-2.55_base_mel_phase+spm+aug+rot" --seed $seed --job_id $job_id
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spatialmixup --model_augmentation --model_spec_augmentation --model_rotations \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+spm+aug+specaug+rot" --seed $seed --job_id $job_id
     ;;
 esac
 
