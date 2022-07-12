@@ -5,7 +5,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import math
-from torchsummary import summary
+#from torchsummary import summary
+from torchinfo import summary
 
 from utils import GradualWarmupScheduler, grad_norm, mixup_data, mixup_criterion
 from models.crnn import CRNN10, CRNN
@@ -48,7 +49,10 @@ class Solver(object):
         self.init_optimizers()
 
         print(f'Input predictor = {self.config.input_shape}')
-        summary(self.predictor, input_size=tuple(self.config.input_shape))
+        #summary(self.predictor, input_size=tuple(self.config.input_shape))
+        summary(self.predictor, input_size=tuple([1, *self.config.input_shape]),
+                col_names=['input_size', 'output_size', 'kernel_size', 'num_params'],
+                row_settings=['var_names'])
 
         if self.model_checkpoint is not None:
             print("Loading model state from {}".format(self.model_checkpoint))
