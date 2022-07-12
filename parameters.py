@@ -77,6 +77,7 @@ def get_parameters():
     p.add_argument('--mode', help='train or eval', choices=['train', 'valid', 'eval'])
     p.add_argument('--debug', action='store_true', help='Enables debug mode, with short runs and no logging.')
     p.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
+    p.add_argument('--task_id', type=str, default='', help='Task id when using array jobs.')
     p.add_argument('--logging_dir', help='Directory to save logs and results.')
     p.add_argument('--wandb', action='store_true', help='Enable wandb to log runs.')
 
@@ -143,7 +144,7 @@ def get_parameters():
     if 'debug' in params['exp_name']:
         params['experiment_description'] = f'{params["exp_name"]}'
     else:
-        params['experiment_description'] = f'{params["exp_group"]}-{params["exp_name"]}-{params["job_id"]}_' \
+        params['experiment_description'] = f'{params["exp_group"]}-{params["exp_name"]}-{params["job_id"]}_{params["task_id"]}__' \
                                            f'n-work:{params["num_workers"]}_' \
                                            f'{params["model"]}_' \
                                            f'{params["model_normalization"]}_' \
@@ -173,8 +174,9 @@ def get_parameters():
             "model_features_transform": params['model_features_transform'],
             "use_mixup": params['use_mixup'],
             "model_loss_fn": params['model_loss_fn'],
-            "job_id": params['job_id'],
+            "job_id": f"{params['job_id']}_{params['job_id']}",
             "num_workers": params['num_workers'],
+            "logging_dir": params["logging_dir"]
         }
         wandb.init(project='seld_dcase2022_ric',
                    name=params['exp_name'],

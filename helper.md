@@ -180,6 +180,44 @@ train
 144000
 
 
+
+### For validaiton
+```bash
+-c
+./configs/run_debug.yaml
+--print_every
+200
+--num_iters
+10000
+--logging_interval
+5000
+--dataset_trim_wavs
+-1
+--model
+crnn10
+--dataset_chunk_size_seconds
+2.55
+--model_features_transform
+stft_iv
+--input_shape
+7
+257
+256
+--mode
+valid
+--evaluation_overlap_fraction
+1
+--model_spatialmixup
+--model_augmentation
+--model_spec_augmentation
+--model_rotations
+--dataset_root_valid
+/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3
+--dataset_list_valid
+dcase2021t3_foa_devtest.txt
+```
+
+
 This are commands that I can call from the command line in vrgpu to do some manual profiling.
 The idea is to monitor the step time, and look in my excel file for comparison.
 ```bash
@@ -200,4 +238,13 @@ git push gitohubo ---> commits to github
 git push  
 or
 git push origin  --> commits to gitlab 
+
+
+cd torch_audiomentations 
+git status
+git add files.py
+git commit -m "commit_message"
+git push origin  ---> commits to torch_audiomentations repo (my fork in github)
+OR
+git pull   ---> pulls from my fork, I should merge in github from the original repo is needed
 ```

@@ -64,7 +64,7 @@ echo Start job
 #srun script4experiment/seld_train_"$1".sh 0
 #srun script4experiment/seld_train_triton_"$1".sh 0 $param
 #srun script4experiment/seld_train_triton_"$1".sh 0 $param $2   #here we pass the random seed as parameter
-srun scripts/experiments.sh 0 $param $1 $2 $SLURM_ARRAY_JOB_ID   # args are: gpu_id, params_id, exp_group, random_seed, job_id
+srun scripts/experiments.sh 0 $param $1 $2 $SLURM_ARRAY_JOB_ID $SLURM_ARRAY_TASK_ID   # args are: gpu_id, params_id, exp_group, random_seed, job_id, job_sub_id
 
 echo End of job
 conda deactivate
