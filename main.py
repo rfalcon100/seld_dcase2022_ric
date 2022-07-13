@@ -103,6 +103,24 @@ def get_rotations(device='cpu'):
 
     return rotation
 
+def get_rotations_noise(device='cpu'):
+    params = {'t_design_degree': 20,
+              'G_type': 'identity',
+              'use_slepian': False,
+              'order_output': 1,
+              'order_input': 1,
+              'backend': 'basic',
+              'w_pattern': 'hypercardioid'}
+
+    rotation = spm.SphericalRotation(rotation_angles_rad=[0,0,0],
+                                     t_design_degree=params['t_design_degree'],
+                                     order_output=params['order_output'],
+                                     order_input=params['order_input'],
+                                     ignore_labels=True,
+                                     device=device)
+
+    return rotation
+
 def get_audiomentations(p=0.5, fs=24000):
     from augmentation.spliceout import SpliceOut
     from augmentation.MyBandStopFilter import BandStopFilter
@@ -210,6 +228,36 @@ class RandomSpecAugmentations(nn.Sequential):
             output = output.squeeze(0)
         return output
 
+class CustomFilter(nn.Sequential):
+    def __init__(self, fs=24000, p=1, p_comp=1):
+        super().__init__()
+        self.fs = fs
+        self.p = p
+        self.p_comp = p_comp
+        mode = 'per_batch'  # for speed, we use batch processing
+        p_mode = 'per_batch'
+        self.augmentations = t_aug.Compose(output_type='tensor',
+                                          transforms=[
+                                              t_aug.LowPassFilter(p=p, min_cutoff_freq=5000, max_cutoff_freq=5001, sample_rate=fs,
+                                                                  p_mode=p_mode),
+                                              t_aug.HighPassFilter(p=p, min_cutoff_freq=125, max_cutoff_freq=126, sample_rate=fs,
+                                                                   p_mode=p_mode),
+                                          ]
+                                          )
+
+    def forward(self, input):
+        do_reshape = False
+        if input.shape == 2:
+            do_reshape = True
+            input = input[None, ...]  # audiomentations expects batches
+
+        # Augmentations
+        output = self.augmentations(input)
+
+        if do_reshape:
+            output = output.squeeze(0)
+        return output
+
 def main():
     # Get config
     config = get_parameters()
@@ -232,6 +280,7 @@ def main():
     augmentation_transform_audio = None
     augmentation_transform_spec = None
     rotations_transform = None
+    rotations_noise = None
 
     if config.model_features_transform == 'stft_iv':
         features_transform = Feature_StftPlusIV(nfft=512).to(device)  # mag STFT with intensity vectors
@@ -239,6 +288,8 @@ def main():
         features_transform = Feature_MelPlusIV().to(device)  # mel spec with intensity vectors
     elif config.model_features_transform == 'mel_phase':
         features_transform = Feature_MelPlusPhase().to(device)  # mel spec with phase difference
+    elif config.model_features_transform == 'bandpass':
+        features_transform = CustomFilter().to(device)  # Custom Band pass filter to accomodate for the Eigenmike
     else:
         features_transform = None
     print(features_transform)
@@ -251,6 +302,8 @@ def main():
         augmentation_transform_spec = RandomSpecAugmentations(p_comp=0.0).to(device)
     if config.model_rotations:
         rotations_transform = get_rotations(device=device).to(device)
+    if config.model_rotations_noise:
+        rotations_noise = get_rotations_noise(device=device).to(device)
 
     if 'samplecnn' in config.model:
         class t_transform(nn.Sequential):
@@ -305,7 +358,7 @@ def main():
             #solver = Solver(config=config, model_checkpoint=checkpoint)
 
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
-                                         device=device, features_transform=features_transform,
+                                         device=device, features_transform=features_transform, rotation_noise=rotations_noise,
                                          augmentation_transform_spatial=augmentation_transform_spatial, augmentation_transform_spec=augmentation_transform_spec,
                                          rotation_transform=rotations_transform, augmentation_transform_audio=augmentation_transform_audio,
                                          target_transform=target_transform, solver=solver, writer=writer)
@@ -428,7 +481,7 @@ def main():
                                                                              seld_metrics_class_wise[4][cls_cnt]))
         print('================================================ \n')
 
-def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: [nn.Sequential, None],
+def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: [nn.Sequential, None], rotation_noise: [nn.Sequential, None],
                     augmentation_transform_spatial: [nn.Sequential, None], rotation_transform: [nn.Sequential, None], augmentation_transform_spec: [nn.Sequential, None],
                     augmentation_transform_audio: [nn.Sequential, None], target_transform: [nn.Sequential, None], solver, writer):
     # Training iteration
@@ -438,8 +491,11 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     # Rotation, Augmentation and Feature extraction
     with torch.no_grad():
         if rotation_transform is not None:
-            rotation_transform.reset_R()
+            rotation_transform.reset_R(mode=config.model_rotations_mode)
             x, target = rotation_transform(x, target)
+        if rotation_noise is not None:
+            rotation_noise.reset_R(mode='noise')
+            x, target = rotation_noise(x, target)
         if augmentation_transform_spatial is not None:
             augmentation_transform_spatial.reset_G(G_type='spherical_cap_soft')
             if False:  # Debugging
@@ -471,22 +527,23 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     # Logging and printing
     if writer is not None:
         step = iter_idx
-        writer.add_scalar('Losses/train', train_loss.item(), step)
-        #if config.wandb:
-        #    wandb.log({'Losses/train': train_loss.item()}, step=step)
+        if iter_idx % 100 == 0:
+            writer.add_scalar('Losses/train', train_loss.item(), step)
+            #if config.wandb:
+            #    wandb.log({'Losses/train': train_loss.item()}, step=step)
 
-        # Learning rates
-        lr = solver.get_lrs()
-        writer.add_scalar('Lr/gen', lr, step)
+            # Learning rates
+            lr = solver.get_lrs()
+            writer.add_scalar('Lr/gen', lr, step)
 
-        # Grad norm
-        grad_norm_model = solver.get_grad_norm()
-        writer.add_scalar('grad_norm/disc', grad_norm_model, step)
+            # Grad norm
+            grad_norm_model = solver.get_grad_norm()
+            writer.add_scalar('grad_norm/disc', grad_norm_model, step)
 
-        # Scheduler
-        if augmentation_transform_audio is not None:
-            p_comp = solver.get_curriculum_params()
-            writer.add_scalar('params/p_comp', p_comp, step)
+    # Scheduler
+    if augmentation_transform_audio is not None:
+        p_comp = solver.get_curriculum_params()
+        writer.add_scalar('params/p_comp', p_comp, iter_idx)
 
     if iter_idx % config.print_every == 0:
         curr_time = time.time() - start_time

@@ -77,14 +77,14 @@ class SampleCNN(nn.Module):
             nn.Conv1d(256, 256, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.MaxPool1d(3, stride=3),
-            nn.Dropout(self.dropout))
+            nn.MaxPool1d(3, stride=3))
         # 197 x 256
         self.conv7 = nn.Sequential(
             nn.Conv1d(256, 128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.MaxPool1d(3, stride=3))
+            nn.MaxPool1d(3, stride=3),
+            nn.Dropout(self.dropout))
 
         # output: 65 x 128  (65 timesteps, 128 channels)
         self.avgpool = nn.AdaptiveAvgPool1d(self.output_steps)
@@ -134,7 +134,8 @@ class SampleCNN(nn.Module):
 
 
 class SampleCNN_GRU(nn.Module):
-    def __init__(self, channels_in=4, channels_out=3, dropout=0.5, num_class=12, multi_track=False, output_timesteps=60):
+    def __init__(self, channels_in=4, channels_out=3, dropout=0.5, num_class=12, multi_track=False, output_timesteps=60,
+                 filters=[128, 128, 128, 256, 256, 256, 128]):
         super(SampleCNN_GRU, self).__init__()
 
         self.channels_in = channels_in
@@ -143,49 +144,52 @@ class SampleCNN_GRU(nn.Module):
         self.num_class = num_class
         self.multi_track = multi_track
         self.output_steps = output_timesteps
+        self.filters = filters
 
         # 144000 x 4
         self.conv1 = nn.Sequential(
-            nn.Conv1d(self.channels_in, 128, kernel_size=3, stride=3, padding=0),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(self.channels_in, self.filters[0], kernel_size=3, stride=3, padding=0),
+            nn.BatchNorm1d(self.filters[0]),
             nn.ReLU())
         # 48000 x 128
         self.conv2 = nn.Sequential(
-            nn.Conv1d(128, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(self.filters[0], self.filters[1], kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(self.filters[1]),
             nn.ReLU(),
             nn.MaxPool1d(3, stride=3))
         # 16000 x 128
         self.conv3 = nn.Sequential(
-            nn.Conv1d(128, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(self.filters[1], self.filters[2], kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(self.filters[2]),
             nn.ReLU(),
             nn.MaxPool1d(3, stride=3))
         # 5333 x 256
         self.conv4 = nn.Sequential(
-            nn.Conv1d(128, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(256),
+            nn.Conv1d(self.filters[2], self.filters[3], kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(self.filters[3]),
             nn.ReLU(),
             nn.MaxPool1d(3, stride=3))
         # 1777 x 256
         self.conv5 = nn.Sequential(
-            nn.Conv1d(256, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(256),
+            nn.Conv1d(self.filters[3], self.filters[4], kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(self.filters[4]),
             nn.ReLU(),
             nn.MaxPool1d(3, stride=3))
         # 592 x 256
         self.conv6 = nn.Sequential(
-            nn.Conv1d(256, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.MaxPool1d(3, stride=3),
-            nn.Dropout(self.dropout))
-        # 197 x 256
-        self.conv7 = nn.Sequential(
-            nn.Conv1d(256, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(self.filters[4], self.filters[5], kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(self.filters[5]),
             nn.ReLU(),
             nn.MaxPool1d(3, stride=3))
+        # 197 x 256
+        self.conv7 = nn.Sequential(
+            nn.Conv1d(self.filters[5], self.filters[6], kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(self.filters[6]),
+            nn.ReLU(),
+            nn.MaxPool1d(3, stride=3))
+        self.conv8 = nn.Sequential(
+            nn.Conv1d(self.filters[6], self.filters[6], kernel_size=1, stride=1, padding=0),
+            nn.Dropout(self.dropout))
 
         # output: 65 x 128  (65 timesteps, 128 channels)
         self.avgpool = nn.AdaptiveAvgPool1d(self.output_steps)
@@ -193,7 +197,7 @@ class SampleCNN_GRU(nn.Module):
         # input_size : the number of expected features
         # hidden_size : hidden features in the gru module
         # input should be : (b, seq_len, H_in)
-        self.gru = nn.GRU(input_size=128, hidden_size=256,
+        self.gru = nn.GRU(input_size=self.filters[6], hidden_size=256,
                           num_layers=2, batch_first=True, bidirectional=True)
 
         self.event_fc = nn.Linear(512, self.num_class, bias=True)
@@ -213,6 +217,7 @@ class SampleCNN_GRU(nn.Module):
         out = self.conv5(out)
         out = self.conv6(out)
         out = self.conv7(out)
+        out = self.conv8(out)
         out = self.avgpool(out)
         b, c, t = out.shape
         out = out.permute(0, 2, 1)
@@ -221,7 +226,7 @@ class SampleCNN_GRU(nn.Module):
         #self.gru.flatten_parameters()  # Maybe this is neede when using DataParallel?
         (x, _) = self.gru(out)
 
-        # x.shape = [2, 8, 512]
+        # x.shape = [2, 60, 512]
         if self.channels_out == 1:
             event_output = self.event_fc(x)
             if self.sigmoid:
@@ -268,8 +273,8 @@ def unit_test_samplecnn_raw():
 
     data = torch.utils.data.TensorDataset(x, y)
     dataloader = DataLoader(data, batch_size=batch)
-    model = SampleCNN(output_timesteps=output_shape[-1]).to(device)
-    #model = SampleCNN_GRU(output_timesteps=output_shape[-1]).to(device)
+    #model = SampleCNN(output_timesteps=output_shape[-1]).to(device)
+    model = SampleCNN_GRU(output_timesteps=output_shape[-1], filters=[128,128,128,256,256,256,512]).to(device)
 
     loss_f = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

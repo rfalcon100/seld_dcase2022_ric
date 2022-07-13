@@ -52,7 +52,7 @@ class Solver(object):
         #summary(self.predictor, input_size=tuple(self.config.input_shape))
         summary(self.predictor, input_size=tuple([1, *self.config.input_shape]),
                 col_names=['input_size', 'output_size', 'kernel_size', 'num_params'],
-                row_settings=['var_names'])
+                row_settings=['var_names'], verbose=1)
 
         if self.model_checkpoint is not None:
             print("Loading model state from {}".format(self.model_checkpoint))
@@ -121,7 +121,7 @@ class Solver(object):
                                   num_class=self.config.unique_classes)
         elif self.config.model == 'samplecnn_gru':
             predictor = SampleCNN_GRU(output_timesteps=math.ceil(self.config.dataset_chunk_size_seconds * 10),
-                                      num_class=self.config.unique_classes)
+                                      num_class=self.config.unique_classes, filters=[128,128,256,256,256,512,512])
         else:
             raise ValueError(f'Model : {self.config.model} is not supported.')
 

@@ -1,5 +1,8 @@
 # SELD_DCASE2022_Ric
 
+
+[![GitHub license](https://img.shields.io/github/license/rfalcon100/seld_dcase2022_ric)](https://github.com/rfalcon100/seld_dcase2022_ric/blob/main/LICENSE)
+
 This is my system for the DCASE 2022 task 3 challenge.
 
 ## Getting started

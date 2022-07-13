@@ -95,11 +95,13 @@ def get_parameters():
 
     # Model arguments
     p.add_argument('--model', help='Model to use.')
-    p.add_argument('--model_features_transform', help='Features transform to use in the model', choices=['stft_iv', 'mel_iv', 'mel_base', 'none'])
+    p.add_argument('--model_features_transform', help='Features transform to use in the model', choices=['stft_iv', 'mel_iv', 'mel_base', 'bandpass', 'none'])
     p.add_argument('--model_spatialmixup', action='store_true', help='Enables spatial mixuo as data augmentation.')
     p.add_argument('--model_augmentation', action='store_true', help='Enable data augmentation in audio domain')
     p.add_argument('--model_spec_augmentation', action='store_true', help='Enable data augmentation in spectrogram domain')
     p.add_argument('--model_rotations', action='store_true', help='Enable soundfiled rotations for audio and labels.')
+    p.add_argument('--model_rotations_mode', type=str, help='Rotation mode.', choices=['azi', 'ele', 'azi-ele'])
+    p.add_argument('--model_rotations_noise', action='store_true', help='Enable rotations (angular) noise.')
     p.add_argument('--model_loss_fn', help='Loss function.', choices=['mse', 'bce'])
     p.add_argument('--model_normalization', help='Threshold for detecting events during evaluation.')
     p.add_argument('--detection_threshold', type=float, help='Threshold for detecting events during evaluation.')

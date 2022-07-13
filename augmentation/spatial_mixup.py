@@ -29,21 +29,43 @@ def get_grid(degree: int):
     t_design = spa.grids.load_t_design(degree=degree)
     return t_design
 
-def draw_random_rotaion_angels() -> torch.Tensor:
+def draw_random_rotaion_angels(mode='azi') -> torch.Tensor:
     """ Returns a list of random angles for spherical rotations.
     Here we can set up the constraints, for example, to limit the rotation in elevation.
     Remember that hta angles are:
     phi --> roll --> rotate over x axis
     theta --> pitch  --> rotate over y axis  (e.g. elevation)
-    psy  --> yaw  --> rotate over z axis (e.g. azimuth)"""
+    psy  --> yaw  --> rotate over z axis (e.g. azimuth)
+
+    Args:
+        mode (str):
+            There are 3 modes on which type of random angles to get:
+            "azi" - Rotates azimiuth only, so returns angles for psy only.
+            "ele" - Rotates elevation only, so returns angles for theta only.
+            "azi-ele" - Rotates both azi and elevation.
+            "noise" - Rotates azi and elevation but only a small amount, intended for angular noise.
+
+    """
     limits = [(0, np.pi / 2), (0, np.pi / 2), (-np.pi / 4, np.pi / 4)]
     means = torch.tensor([0.0, 0.0, np.pi / 4])
     limits = [(0, np.pi / 2 ),  (-np.pi / 4, np.pi / 4), (0, np.pi / 2)]
     means = torch.tensor([0.0, np.pi / 4, 0.0])
 
     # testing with rotations over azimtuh only
-    limits = [(0, 0 ),  (0,0), (0, np.pi )]
-    means = torch.tensor([0.0, 0.0, 0.0])
+    if mode=='azi':
+        limits = [(0, 0),  (0,0), (0, np.pi )]
+        means = torch.tensor([0.0, 0.0, 0.0])
+    elif mode=='ele':
+        limits = [(0, 0),  (-np.pi/4,np.pi/4), (0, 0)]
+        means = torch.tensor([0.0, np.pi / 4, 0.0])
+    elif mode=='azi-ele':
+        limits = [(0, 0), (-np.pi / 4, np.pi / 4), (0, np.pi / 2)]
+        means = torch.tensor([0.0, np.pi / 4, 0.0])
+    elif mode=='noise':
+        limits = [(0, 0), (-np.pi / 36, np.pi / 36), (0, np.pi / 36)]
+        means = torch.tensor([0.0, np.pi / 36, 0.0])
+    else:
+        raise ValueError(f'Mode: "{mode}" not supported when drawing random angles for rotation.')
     b = torch.tensor([np.sum(np.abs(x)) for x in limits])
     tmp = torch.rand(size=(3,))
 
@@ -138,7 +160,7 @@ class SphericalRotation(nn.Module):
     def __init__(self, rotation_angles_rad: Tuple[float, float, float] = [0.0, 0.0, 0.0],
                  mode='single', num_random_rotations: int = -1, device: str = 'cpu',
                  t_design_degree: int = 3, order_input: int = 1, order_output: int = 1,
-                 backend='basic', w_pattern='hypercardioid'):
+                 backend='basic', w_pattern='hypercardioid', ignore_labels=False):
         super(SphericalRotation, self).__init__()
         assert t_design_degree > 2 * order_output, 'The t-design degree should be > 2 * N_{tilde} of the output order '
 
@@ -153,6 +175,7 @@ class SphericalRotation(nn.Module):
         self.device = device
         self.backend = backend
         self.w_pattern = w_pattern
+        self.ignore_labels = ignore_labels
 
         self.Y = None
         self.W = None
@@ -188,8 +211,11 @@ class SphericalRotation(nn.Module):
         #print(f't_mat shape: {self.T_mat.shape}')
         #print(f'r shape: {self.R.shape}')
         #print(f'targets shape: {targets.shape}')
-        out_targets = torch.matmul(targets.double().permute((0, 2, 3, 1)), self.R.transpose(1,0))
-        out_targets = out_targets.permute((0, 3, 1, 2))
+        if not self.ignore_labels:
+            out_targets = torch.matmul(targets.double().permute((0, 2, 3, 1)), self.R.transpose(1,0))
+            out_targets = out_targets.permute((0, 3, 1, 2))
+        else:
+            out_targets = targets
 
         return out_x.float(), out_targets.float()
 
@@ -205,9 +231,9 @@ class SphericalRotation(nn.Module):
 
         return rep
 
-    def reset_R(self, rotation_angles_rad: Tuple[float, float, float] = None):
+    def reset_R(self, rotation_angles_rad: Tuple[float, float, float] = None, mode='azi'):
         if rotation_angles_rad is None:
-            rotation_angles_rad = draw_random_rotaion_angels()
+            rotation_angles_rad = draw_random_rotaion_angels(mode=mode)
         self.rotation_angles_rad = rotation_angles_rad
         tmp = utils.get_rotation_matrix(*self.rotation_angles_rad)
         self.R = tmp.to('cpu')  # TODO, in cpu due to compatiblity with spaudiopy, we need to recompute Y
@@ -588,13 +614,14 @@ def test_rotation():
     norms = torch.linalg.vector_norm(points, ord=2, dim=-1)
     points = points / norms.unsqueeze(-1).repeat(1, 3)
 
-    rotation = SphericalRotation(rotation_angles_rad=rotation_angles,
+    rotation = SphericalRotation(rotation_angles_rad=[0,0,0],
                                  t_design_degree=params['t_design_degree'],
                                  order_output=params['order_output'],
-                                 order_input=params['order_input'])
+                                 order_input=params['order_input'],
+                                 ignore_labels=False)
     all_new_points = []
     for ii in range(n_rotations):
-        rotation.reset_R()
+        rotation.reset_R(mode='noise')  # Change this to test modes
         _, new_points = rotation(torch.zeros(size=(1, 4, 1000)), points[..., None, None])
         all_new_points.append(new_points)
     all_new_points = torch.cat(all_new_points, dim=0)
