@@ -160,7 +160,7 @@ class SphericalRotation(nn.Module):
     def __init__(self, rotation_angles_rad: Tuple[float, float, float] = [0.0, 0.0, 0.0],
                  mode='single', num_random_rotations: int = -1, device: str = 'cpu',
                  t_design_degree: int = 3, order_input: int = 1, order_output: int = 1,
-                 backend='basic', w_pattern='hypercardioid', ignore_labels=False):
+                 backend='basic', w_pattern='hypercardioid', ignore_labels=False, p_comp=1.0):
         super(SphericalRotation, self).__init__()
         assert t_design_degree > 2 * order_output, 'The t-design degree should be > 2 * N_{tilde} of the output order '
 
@@ -176,6 +176,7 @@ class SphericalRotation(nn.Module):
         self.backend = backend
         self.w_pattern = w_pattern
         self.ignore_labels = ignore_labels
+        self.p_comp = 1.0  # Probabliyt of applying the transform
 
         self.Y = None
         self.W = None
@@ -207,18 +208,21 @@ class SphericalRotation(nn.Module):
             assert X.shape[-2] == self.W.shape[-1], 'Wrong shape for input signal or matrix W.'
         assert self.T_mat.shape[-1] == X.shape[-2], 'Wrong shape for input signal or matrix T.'
 
-        out_x = torch.matmul(self.T_mat, X.double())
-        #print(f't_mat shape: {self.T_mat.shape}')
-        #print(f'r shape: {self.R.shape}')
-        #print(f'targets shape: {targets.shape}')
+        if torch.rand(1) <= self.p_comp:
+            out_x = torch.matmul(self.T_mat, X.double())
+            #print(f't_mat shape: {self.T_mat.shape}')
+            #print(f'r shape: {self.R.shape}')
+            #print(f'targets shape: {targets.shape}')
 
-        if not self.ignore_labels and targets is not None:
-            out_targets = torch.matmul(targets.double().permute((0, 2, 3, 1)), self.R.transpose(1,0))
-            out_targets = out_targets.permute((0, 3, 1, 2)).float()
+            if not self.ignore_labels and targets is not None:
+                out_targets = torch.matmul(targets.double().permute((0, 2, 3, 1)), self.R.transpose(1,0))
+                out_targets = out_targets.permute((0, 3, 1, 2)).float()
+            else:
+                out_targets = targets
+
+            return out_x.float(), out_targets
         else:
-            out_targets = targets
-
-        return out_x.float(), out_targets
+            return X, targets
 
     def __repr__(self):
         rep = "SphericalRotation with: \n"
@@ -286,7 +290,7 @@ class DirectionalLoudness(nn.Module):
     def __init__(self, order_input: int = 1, t_design_degree: int = 3, order_output: int = 1,
                  G_type: str = 'random_diag', G_values: Union[np.ndarray, torch.Tensor] = None,
                  device: str = 'cpu', T_pseudo_floor=1e-8, backend='basic', w_pattern='hypercardioid',
-                 use_slepian=False, rotation_angles_rad: Tuple[float, float, float] = None):
+                 use_slepian=False, rotation_angles_rad: Tuple[float, float, float] = None, p_comp=1.0):
         super(DirectionalLoudness, self).__init__()
         assert t_design_degree > 2 * order_output, 'The t-design degree should be > 2 * N_{tilde} of the output order '
 
@@ -305,6 +309,7 @@ class DirectionalLoudness(nn.Module):
         self.backend = backend  # {'spat_filterbank', 'basic'}
         self.w_pattern = w_pattern
         self.use_slepian = use_slepian
+        self.p_comp = p_comp
 
         self.G_cap_center = None  # For spherical caps
         self.G_cap_width = None
@@ -481,9 +486,11 @@ class DirectionalLoudness(nn.Module):
             assert X.shape[-2] == self.W.shape[-1], 'Wrong shape for input signal or matrix W.'
         assert self.T_mat.shape[-1] == X.shape[-2], 'Wrong shape for input signal or matrix T.'
 
-        out = torch.matmul(self.T_mat, X.double())
-
-        return out.float()
+        if torch.rand(1) <= self.p_comp:
+            out = torch.matmul(self.T_mat, X.double())
+            return out.float()
+        else:
+            return X
 
     def plot_response(self, plot_channel=0, title=None, plot3d=True, plot2d=True, plot_matrix=False, show_plot=True,
                       do_scaling=True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:

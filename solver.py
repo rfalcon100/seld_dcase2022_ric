@@ -38,6 +38,9 @@ class Solver(object):
         self._fixed_label = None
         self._p_comp = 0.0
         self.lam = 1 # For mixup
+        self.curriculum_scheduler = config.curriculum_scheduler
+        self.curriculum_loss = 1e6
+        self.curriculum_seld_metric = 1.0
 
         # If using multiple losses, each loss has a name, value, and function (criterion)
         self.loss_names = ['rec']
@@ -172,16 +175,39 @@ class Solver(object):
     def get_lrs(self):
         return self.optimizer_predictor.state_dict()['param_groups'][0]['lr']
 
-    def curriculum_scheduler_step(self, step: int):
+    def curriculum_scheduler_step(self, step: int, val_loss=None, seld_metric=0):
         """Updates parameters for curriculum learning.
         For now, this supports:
             - p_comp for the augmentations
         """
-        update_every = 5000  # TODO: Harcoded for now, find a better value
-        if (step % update_every == 0) and step != 0:
-            # Update _p_comp
-            if self._p_comp < 0.8:  # TODO Hardcoded max
-                self._p_comp += 0.025  # TODO Harcdoded step size
+        p_comp_max = 1.0   # TODO Hardcoded max
+
+        if self.curriculum_scheduler == 'fixed':  # No update, augmentaiton always active
+            self._p_comp = p_comp_max
+        elif self.curriculum_scheduler == 'linear':  # Update p_comp linearly, every validation step
+            update_every = self.config.logging_interval  # TODO: Hardcoded for now, find a better value
+            if (step % update_every == 0) and step != 0:
+                # Update _p_comp
+                if self._p_comp < p_comp_max:
+                    self._p_comp += 0.07  # TODO Hardcoded step size
+        elif self.curriculum_scheduler == 'loss':
+            if (step % self.config.logging_interval == 0) and step != 0:
+                if not val_loss < self.curriculum_loss:
+                    if self._p_comp < p_comp_max:
+                        self._p_comp += 0.07  # TODO Hardcoded step size
+                if val_loss > 0.0:
+                    self.curriculum_loss = val_loss
+        elif self.curriculum_scheduler == 'seld_metric':
+            if (step % self.config.logging_interval == 0) and step != 0:
+                if not seld_metric < self.curriculum_seld_metric:
+                    if self._p_comp < p_comp_max:
+                        self._p_comp += 0.07  # TODO Hardcoded step size
+                #else:  # REmermbers the best metric ever,
+                #    self.curriculum_seld_metric = seld_metric
+                if True:  # REmermbers the last validation step, so updates are smoother
+                    self.curriculum_seld_metric = seld_metric
+        if self._p_comp > p_comp_max:
+            self._p_comp = p_comp_max
 
     def get_curriculum_params(self):
         """ Returns the params that are being update via curriculum learning. """

@@ -61,7 +61,7 @@ def get_dataset(config):
 
     return dataloader_train, dataset_valid
 
-def get_augmentation(device='cpu'):
+def get_spatial_mixup(device='cpu', p_comp=1.0):
     params = {'t_design_degree': 20,
               'G_type': 'identity',
               'use_slepian': False,
@@ -77,11 +77,12 @@ def get_augmentation(device='cpu'):
                                         order_input=params['order_input'],
                                         backend=params['backend'],
                                         w_pattern=params['w_pattern'],
-                                        device=device)
+                                        device=device,
+                                        p_comp=p_comp)
 
     return transform
 
-def get_rotations(device='cpu'):
+def get_rotations(device='cpu', p_comp=1.0):
     params = {'t_design_degree': 20,
               'G_type': 'identity',
               'use_slepian': False,
@@ -99,11 +100,12 @@ def get_rotations(device='cpu'):
                                      t_design_degree=params['t_design_degree'],
                                      order_output=params['order_output'],
                                      order_input=params['order_input'],
-                                     device=device)
+                                     device=device,
+                                     p_comp=p_comp)
 
     return rotation
 
-def get_rotations_noise(device='cpu'):
+def get_rotations_noise(device='cpu', p_comp=1.0):
     params = {'t_design_degree': 20,
               'G_type': 'identity',
               'use_slepian': False,
@@ -117,7 +119,7 @@ def get_rotations_noise(device='cpu'):
                                      order_output=params['order_output'],
                                      order_input=params['order_input'],
                                      ignore_labels=True,
-                                     device=device)
+                                     device=device, p_comp=p_comp)
 
     return rotation
 
@@ -295,15 +297,15 @@ def main():
     print(features_transform)
 
     if config.model_spatialmixup:
-        augmentation_transform_spatial = get_augmentation(device=device).to(device)
+        augmentation_transform_spatial = get_spatial_mixup(device=device, p_comp=0.0).to(device)
     if config.model_augmentation:
         augmentation_transform_audio = RandomAugmentations(p_comp=0.0).to(device)
     if config.model_spec_augmentation:
         augmentation_transform_spec = RandomSpecAugmentations(p_comp=0.0).to(device)
     if config.model_rotations:
-        rotations_transform = get_rotations(device=device).to(device)
+        rotations_transform = get_rotations(device=device, p_comp=0.0).to(device)
     if config.model_rotations_noise:
-        rotations_noise = get_rotations_noise(device=device).to(device)
+        rotations_noise = get_rotations_noise(device=device, p_comp=0.0).to(device)
 
     if 'samplecnn' in config.model:
         class t_transform(nn.Sequential):
@@ -391,9 +393,14 @@ def main():
                                                                                    seld_metrics_class_wise[2][cls_cnt],
                                                                                    seld_metrics_class_wise[3][cls_cnt],
                                                                                    seld_metrics_class_wise[4][cls_cnt]))
+                print(f'Current p_comp = {solver.get_curriculum_params()}')
                 print('================================================ \n')
 
             # Schedulers
+            if iter_idx > 0:
+                solver.curriculum_scheduler_step(iter_idx,
+                                                 val_loss if val_loss is not None else 0,
+                                                 seld_metrics[4] if seld_metrics is not None else 0)
             if iter_idx % config.lr_scheduler_step == 0 and iter_idx > 0:
                 solver.lr_step(seld_metrics[4] if seld_metrics is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
             iter_idx += 1
@@ -492,12 +499,15 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     with torch.no_grad():
         if rotation_transform is not None:
             rotation_transform.reset_R(mode=config.model_rotations_mode)
+            rotation_transform.p_comp = solver.get_curriculum_params()
             x, target = rotation_transform(x, target)
         if rotation_noise is not None:
             rotation_noise.reset_R(mode='noise')
-            x, _ = rotation_noise(x, torch.zeros_like(target, device=device))
+            rotation_noise.p_comp = solver.get_curriculum_params()
+            x, _ = rotation_noise(x)
         if augmentation_transform_spatial is not None:
             augmentation_transform_spatial.reset_G(G_type='spherical_cap_soft')
+            augmentation_transform_spatial.p_comp = solver.get_curriculum_params()
             if False:  # Debugging
                 augmentation_transform_spatial.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
             x = augmentation_transform_spatial(x)
@@ -515,7 +525,6 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     # Train step
     solver.set_input(x, target)
     solver.train_step()
-    solver.curriculum_scheduler_step(iter_idx)
 
     # Useful debugging
     #plots.plot_labels_cross_sections(target[0].detach().cpu(), n_classes=list(range(target[0].shape[-2])), plot_cartesian=True)
@@ -540,10 +549,10 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             grad_norm_model = solver.get_grad_norm()
             writer.add_scalar('grad_norm/disc', grad_norm_model, step)
 
-    # Scheduler
-    if augmentation_transform_audio is not None:
-        p_comp = solver.get_curriculum_params()
-        writer.add_scalar('params/p_comp', p_comp, iter_idx)
+            # Scheduler
+            if augmentation_transform_audio is not None:
+                p_comp = solver.get_curriculum_params()
+                writer.add_scalar('params/p_comp', p_comp, iter_idx)
 
     if iter_idx % config.print_every == 0:
         curr_time = time.time() - start_time
@@ -640,6 +649,8 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 full_output.append(output)
                 full_loss.append(loss)
                 ###full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
+                if torch.isnan(loss):
+                    a = 1
 
             # Concatenate chunks across timesteps into final predictions
             if config.dataset_multi_track:

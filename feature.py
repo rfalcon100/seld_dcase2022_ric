@@ -46,8 +46,8 @@ class Feature_StftPlusIV(nn.Sequential):
         #phase_diff = torch.cos(torch.diff(phase, dim=-3))
         foa_iv = _get_foa_intensity_vectors_pytorch(tmp)
         output = torch.concat([mag, foa_iv], dim=-3)
-        if torch.any(torch.isnan(output)):
-            warnings.warn('WARNING: NaNs when computing features.')
+        if torch.any(torch.isnan(output)) or torch.any(torch.isinf(output)):
+            warnings.warn('WARNING: NaNs or INFs when computing features.')
         return output
 
 
@@ -79,12 +79,12 @@ class Feature_MelPlusPhase(nn.Sequential):
         phase = self.mel_scale(phase)
         phase_diff = torch.cos(torch.diff(phase, dim=-3))
         output = torch.concat([mag, phase_diff], dim=-3)
-        if torch.any(torch.isnan(output)):
-            warnings.warn('WARNING: NaNs when computing features.')
+        if torch.any(torch.isnan(output)) or torch.any(torch.isinf(output)):
+            warnings.warn('WARNING: NaNs or INFs when computing features.')
         return output
 
 class Feature_MelPlusIV(nn.Sequential):
-    """ Mel Spectoram with interchannel phase differencefeatures"""
+    """ Mel Spectoram with interchannel phase difference features"""
     def __init__(self, normalize_specs=True, n_mels=86, nfft=1024):
         super(Feature_MelPlusIV, self).__init__()
         self.stft = torchaudio.transforms.Spectrogram(n_fft=nfft,
@@ -100,7 +100,7 @@ class Feature_MelPlusIV(nn.Sequential):
         mag = tmp.abs()
         mag = self.mel_scale(mag)
         div = torch.amax(mag, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
-        mag = 20 * torch.log10((mag + self.eps) / div)
+        mag = 20 * torch.log10(mag / (div+ self.eps))
         mag = torch.clamp(mag, self.clamp_min)
         if self.normalize_specs:
             t = torch.tensor(self.clamp_min)
@@ -111,10 +111,10 @@ class Feature_MelPlusIV(nn.Sequential):
         foa_iv = self.mel_scale(foa_iv)
         if self.normalize_specs:
             div = torch.amax(foa_iv, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
-            foa_iv = foa_iv / div
+            foa_iv = foa_iv / (div + self.eps)
         output = torch.concat([mag, foa_iv], dim=-3)
-        if torch.any(torch.isnan(output)):
-            warnings.warn('WARNING: NaNs when computing features.')
+        if torch.any(torch.isnan(output)) or torch.any(torch.isinf(output)):
+            warnings.warn('WARNING: NaNs or INFs when computing features.')
         return output
 
 def test_my_features():

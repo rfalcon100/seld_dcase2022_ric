@@ -21,6 +21,7 @@ lr_scheduler_step: 10000
 lr_min: 1e-7
 lr_decay_rate: 0.9
 lr_patience_times: 3
+curriculum_scheduler: linear
 
 #----------------------------------------------------------------------------------------------------------------
 model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
@@ -29,7 +30,7 @@ model_spatialmixup: false
 model_augmentation: false
 model_spec_augmentation: false
 model_rotations: false
-model_rotations_mode: azi
+model_rotations_mode: azi-ele
 model_rotations_noise: false
 model_loss_fn: mse      # ['mse', 'bce']
 model_normalization: batchnorm
@@ -41,7 +42,7 @@ input_shape: [7, 96, 256]      # 'input_shape': [4, 144000], when using sample c
 output_shape: [3, 12, 256]
 
 #----------------------------------------------------------------------------------------------------------------
-dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55.
+dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55 or 5.11
 dataset_chunk_mode: random        # ['random', 'fixed', 'full']
 dataset_multi_track: false
 dataset_backend: sony

@@ -7,7 +7,7 @@
 ##SBATCH --time 0-0:30:00
 #SBATCH --time 0-13:00:00
 #SBATCH -o "slurm/train_%A_%a.out"
-#SBATCH --array=0-3
+#SBATCH --array=0-10
 
 # April01, table 01
 case $SLURM_ARRAY_TASK_ID in
@@ -19,6 +19,10 @@ case $SLURM_ARRAY_TASK_ID in
    5)  param=6 ;;
    6)  param=7 ;;
    7)  param=8 ;;
+   8)  param=9 ;;
+   9)  param=10 ;;
+   10)  param=11 ;;
+   11)  param=12 ;;
 esac
 
 # example

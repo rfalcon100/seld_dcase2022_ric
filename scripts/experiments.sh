@@ -27,29 +27,92 @@ echo 'Job_sub_id'
 echo $job_sub_id
 
 
-
+# These were from testing input features and augmentaiton for CRNN, I ma missing mixup here
+#
 case $param in
     1)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 \
-    --wandb --exp_name "samplecnn-gru_bandpass" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv" --seed $seed --job_id $job_id --task_id $job_sub_id
     ;;
     2)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations \
-    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler fixed\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__fixed" --seed $seed --job_id $job_id --task_id $job_sub_id
     ;;
     3)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations --model_rotations_noise\
-    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot+rotnoise" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler linear\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__linear" --seed $seed --job_id $job_id --task_id $job_sub_id
     ;;
     4)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations --use_mixup \
-    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot+mixup" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler loss\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__loss" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    5)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler seld_metric\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__seld_metric" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    6)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    7)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spatialmixup \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+spm" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    8)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+rot" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    9)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations_noise \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+rotnoise" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    10)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spec_augmentation\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+specaug" --seed $seed --job_id $job_id --task_id $job_sub_id
+    ;;
+    11)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --use_mixup \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+mix" --seed $seed --job_id $job_id --task_id $job_sub_id
     ;;
 esac
+
+
+
+
+
+#case $param in
+#    1)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 \
+#    --wandb --exp_name "samplecnn-gru_bandpass" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+#    ;;
+#    2)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations \
+#    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+#    ;;
+#    3)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations --model_rotations_noise\
+#    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot+rotnoise" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+#    ;;
+#    4)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations --use_mixup \
+#    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot+mixup" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+#    ;;
+#esac
 
 # These were from testing input features and augmentaiton for CRNN, I ma missing mixup here
 #

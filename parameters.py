@@ -92,6 +92,7 @@ def get_parameters():
     p.add_argument('--lr_min', type=float, help='Minimum learning rate so that the Scheduler does not go too low.')
     p.add_argument('--lr_decay_rate', type=float, help='Decay rate for the lr scheduler.')
     p.add_argument('--lr_patience_times', type=float, help='Validaiton steps patienece for the lr scheduler.')
+    p.add_argument('--curriculum_scheduler', type=str, help='Select scheduler type for the curriculum learning', choices=['linear', 'fixed', 'loss', 'seld_metric'])
 
     # Model arguments
     p.add_argument('--model', help='Model to use.')
@@ -149,6 +150,7 @@ def get_parameters():
         params['experiment_description'] = f'{params["exp_group"]}-{params["exp_name"]}-{params["job_id"]}_{params["task_id"]}__' \
                                            f'n-work:{params["num_workers"]}_' \
                                            f'{params["model"]}_' \
+                                           f'curr:{params["curriculum_scheduler"]}_' \
                                            f'{params["model_normalization"]}_' \
                                            f'{params["dataset_chunk_size"]}_' \
                                            f'_{datetime.now().strftime("%Y-%m-%d-%H%M%S")}'
@@ -177,6 +179,7 @@ def get_parameters():
             "use_mixup": params['use_mixup'],
             "model_loss_fn": params['model_loss_fn'],
             "job_id": f"{params['job_id']}_{params['task_id']}",
+            "curriculum": params['curriculum_scheduler'],
             "num_workers": params['num_workers'],
             "logging_dir": params["logging_dir"]
         }

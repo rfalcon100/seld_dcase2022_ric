@@ -21,6 +21,7 @@ lr_scheduler_step: 1000
 lr_min: 1e-7
 lr_decay_rate: 0.9
 lr_patience_times: 3
+curriculum_scheduler: linear
 
 #----------------------------------------------------------------------------------------------------------------
 model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
