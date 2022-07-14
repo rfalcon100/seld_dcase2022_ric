@@ -495,7 +495,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             x, target = rotation_transform(x, target)
         if rotation_noise is not None:
             rotation_noise.reset_R(mode='noise')
-            x, target = rotation_noise(x, target)
+            x, _ = rotation_noise(x, torch.zeros_like(target, device=device))
         if augmentation_transform_spatial is not None:
             augmentation_transform_spatial.reset_G(G_type='spherical_cap_soft')
             if False:  # Debugging

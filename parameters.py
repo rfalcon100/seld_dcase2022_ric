@@ -176,7 +176,7 @@ def get_parameters():
             "model_features_transform": params['model_features_transform'],
             "use_mixup": params['use_mixup'],
             "model_loss_fn": params['model_loss_fn'],
-            "job_id": f"{params['job_id']}_{params['job_id']}",
+            "job_id": f"{params['job_id']}_{params['task_id']}",
             "num_workers": params['num_workers'],
             "logging_dir": params["logging_dir"]
         }

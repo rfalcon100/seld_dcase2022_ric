@@ -62,8 +62,8 @@ def draw_random_rotaion_angels(mode='azi') -> torch.Tensor:
         limits = [(0, 0), (-np.pi / 4, np.pi / 4), (0, np.pi / 2)]
         means = torch.tensor([0.0, np.pi / 4, 0.0])
     elif mode=='noise':
-        limits = [(0, 0), (-np.pi / 36, np.pi / 36), (0, np.pi / 36)]
-        means = torch.tensor([0.0, np.pi / 36, 0.0])
+        limits = [(0, 0), (-np.pi / 45, np.pi / 45), (0, np.pi / 90)]
+        means = torch.tensor([0.0, np.pi / 45, 0.0])
     else:
         raise ValueError(f'Mode: "{mode}" not supported when drawing random angles for rotation.')
     b = torch.tensor([np.sum(np.abs(x)) for x in limits])
@@ -195,7 +195,7 @@ class SphericalRotation(nn.Module):
 
             self.T_mat = T_mat.to(self.device)
 
-    def forward(self, X: Union[torch.Tensor, np.ndarray], targets: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+    def forward(self, X: Union[torch.Tensor, np.ndarray], targets: Union[torch.Tensor, np.ndarray] = None) -> torch.Tensor:
         assert X.shape[-2] == self.W.shape[
             -1], 'ERROR: The order of the input signal does not match the rotation matrix'
 
@@ -211,13 +211,14 @@ class SphericalRotation(nn.Module):
         #print(f't_mat shape: {self.T_mat.shape}')
         #print(f'r shape: {self.R.shape}')
         #print(f'targets shape: {targets.shape}')
-        if not self.ignore_labels:
+
+        if not self.ignore_labels and targets is not None:
             out_targets = torch.matmul(targets.double().permute((0, 2, 3, 1)), self.R.transpose(1,0))
-            out_targets = out_targets.permute((0, 3, 1, 2))
+            out_targets = out_targets.permute((0, 3, 1, 2)).float()
         else:
             out_targets = targets
 
-        return out_x.float(), out_targets.float()
+        return out_x.float(), out_targets
 
     def __repr__(self):
         rep = "SphericalRotation with: \n"

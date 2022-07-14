@@ -29,7 +29,7 @@ model_spatialmixup: false
 model_augmentation: false
 model_spec_augmentation: false
 model_rotations: false
-model_rotations_mode: azi
+model_rotations_mode: azi-ele
 model_rotations_noise: false
 model_loss_fn: mse      # ['mse', 'bce']
 model_normalization: batchnorm

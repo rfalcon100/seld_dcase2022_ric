@@ -7,13 +7,13 @@
 ##SBATCH --time 0-0:30:00
 #SBATCH --time 0-13:00:00
 #SBATCH -o "slurm/train_%A_%a.out"
-#SBATCH --array=0-5
+#SBATCH --array=0-3
 
 # April01, table 01
 case $SLURM_ARRAY_TASK_ID in
    0)  param=1 ;;
    1)  param=2 ;;
-   2)  param=3  ;;
+   2)  param=3 ;;
    3)  param=4 ;;
    4)  param=5 ;;
    5)  param=6 ;;
