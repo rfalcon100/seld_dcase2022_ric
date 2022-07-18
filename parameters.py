@@ -191,8 +191,9 @@ def get_parameters():
                          'rot' if params['model_rotations'] else 'non-rot'],
                    group=params['exp_group'] if (params['exp_group'] is not None or params['exp_group'] != '') else None,
                    config=wandb_config,
-                   dir=params["logging_dir"],
-                   sync_tensorboard=True)
+                   dir=params["logging_dir"],)
+                   #sync_tensorboard=True)
+        wandb.tensorboard.patch(save=False)
 
     print("")
     print("================ Experiment ================")

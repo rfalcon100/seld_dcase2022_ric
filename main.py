@@ -345,6 +345,7 @@ def main():
 
     # Monitoring variables
     train_loss, val_loss, seld_metrics = 0, 0, None
+    best_val_step, best_val_loss, best_metrics = 0, 0, [0,0,0,0,99]
     start_time = time.time()
 
     if config.mode == 'train':
@@ -368,6 +369,7 @@ def main():
             if iter_idx % config.print_every == 0 and iter_idx > 0:
                 start_step_time = time.time()
 
+
             if iter_idx % config.logging_interval == 0 and iter_idx > 0:
                 seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
                                                               device=device, features_transform=features_transform, target_transform=target_transform,
@@ -378,9 +380,11 @@ def main():
                 print(
                     'iteration: {}/{}, time: {:0.2f}, '
                     'train_loss: {:0.4f}, val_loss: {:0.4f}, '
+                    'p_comp: {:0.3f}, best_val_step: {},  '
                     'ER/F/LE/LR/SELD: {}, '.format(
                         iter_idx, config.num_iters, curr_time,
                         train_loss, val_loss,
+                        solver.get_curriculum_params(), best_val_step,
                         '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics[0:5]),))
 
                 print('\n Classwise results on validation data')
@@ -393,8 +397,22 @@ def main():
                                                                                    seld_metrics_class_wise[2][cls_cnt],
                                                                                    seld_metrics_class_wise[3][cls_cnt],
                                                                                    seld_metrics_class_wise[4][cls_cnt]))
-                print(f'Current p_comp = {solver.get_curriculum_params()}')
                 print('================================================ \n')
+
+                # Check for best validation step
+                if seld_metrics[4] < best_metrics[4]:
+                    best_metrics = seld_metrics
+                    best_val_step = iter_idx
+                    best_val_loss = val_loss
+                if config.wandb:
+                    wandb.log({'best_val_step': best_val_step})
+                    wandb.summary['BestMetrics/SELD'] = best_metrics[4]
+                    wandb.summary['BestMetrics/ER'] = best_metrics[0]
+                    wandb.summary['BestMetrics/F'] = best_metrics[1]
+                    wandb.summary['BestMetrics/LE'] = best_metrics[2]
+                    wandb.summary['BestMetrics/LR'] = best_metrics[3]
+                    wandb.summary['Losses/valid'] = best_val_loss
+                    wandb.summary['best_val_step'] = best_val_step
 
             # Schedulers
             if iter_idx > 0:
@@ -550,7 +568,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             writer.add_scalar('grad_norm/disc', grad_norm_model, step)
 
             # Scheduler
-            if augmentation_transform_audio is not None:
+            if augmentation_transform_audio is not None or rotation_transform is not None or rotation_noise is not None or augmentation_transform_spatial is not None or augmentation_transform_spec is not None:
                 p_comp = solver.get_curriculum_params()
                 writer.add_scalar('params/p_comp', p_comp, iter_idx)
 
@@ -586,8 +604,8 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             writer.add_figure('fixed_output/train', fig, iter_idx)
             fig = plots.plot_labels(fixed_label_sph, savefig=False, plot_cartesian=False, title='Target')
             writer.add_figure('fixed_label/train', fig, None)
-            fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
-            writer.add_figure('fixed_error/train', fig, iter_idx)
+            #fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
+            #writer.add_figure('fixed_error/train', fig, iter_idx)
 
     if (iter_idx % config.logging_interval == 0) and iter_idx > 0:
         torch.save(solver.predictor.state_dict(), os.path.join(config.logging_dir, f'model_step_{iter_idx}.pth'))
