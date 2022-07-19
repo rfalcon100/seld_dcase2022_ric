@@ -69,7 +69,7 @@ class Feature_MelPlusPhase(nn.Sequential):
         mag = self.mel_scale(mag)
         div = torch.amax(mag, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
         mag = 20 * torch.log10((mag + self.eps) / div)
-        mag = torch.clamp(mag, self.clamp_min)
+        mag = torch.clamp(mag, self.clamp_min)  # [-80, 0] range, in dB
         if self.normalize_specs:
             t = torch.tensor(self.clamp_min)
             mag = mag / t.abs()  # [-1, 0] range
@@ -101,7 +101,7 @@ class Feature_MelPlusIV(nn.Sequential):
         mag = self.mel_scale(mag)
         div = torch.amax(mag, dim=(-3, -2, -1), keepdim=True)  # Singla max across all channels, for each sample in the batch
         mag = 20 * torch.log10(mag / (div+ self.eps))
-        mag = torch.clamp(mag, self.clamp_min)
+        mag = torch.clamp(mag, self.clamp_min)  # [-80, 0] range, in dB
         if self.normalize_specs:
             t = torch.tensor(self.clamp_min)
             mag = mag / t.abs()  # [-1, 0] range
