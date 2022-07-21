@@ -312,7 +312,7 @@ def main():
             def __int__(self):
                 super().__init__()
             def forward(self, input):
-                out = nn.functional.interpolate(input, scale_factor=(1, 0.1), mode='area')
+                out = nn.functional.interpolate(input, scale_factor=(1, 0.1), mode='nearest')
                 return out
         target_transform = t_transform()
     else:
@@ -475,9 +475,9 @@ def main():
         checkpoints_path = ['six-2021-features-no-grad-spec-crnn10-2.55_base_stft_iv+spm+aug+rot-5836347_n-work:0_crnn10_batchnorm_61200__2022-07-11-211006']
         checkpoints_name = 'model_step_180000.pth'
 
-        checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
-        solver = Solver(config=config, model_checkpoint=checkpoint)
-        #solver = Solver(config=config)  # TODO this is for loss upper bound only
+        #checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
+        #solver = Solver(config=config, model_checkpoint=checkpoint)
+        solver = Solver(config=config)  # TODO this is for loss upper bound only
 
         seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
                                                       device=device, features_transform=features_transform,
@@ -661,12 +661,12 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 if target_transform is not None:
                     labels = target_transform(labels)
                 output = model(audio)
-                ###output = torch.zeros_like(labels)  # TODO This is just to get the upper bound of the loss
+                output = torch.zeros_like(labels)  # TODO This is just to get the upper bound of the loss
                 ###output = torch.zeros(size=(labels.shape[0], labels.shape[1], 3*3*12), device=device)  # TODO This is just to get the upper bound of the loss wih mACCDOA
                 loss = solver.loss_fns[solver.loss_names[0]](output, labels)
                 full_output.append(output)
                 full_loss.append(loss)
-                ###full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
+                full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
                 if torch.isnan(loss):
                     a = 1
 
@@ -676,7 +676,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             else:
                 if overlap == 1:
                     output = torch.concat(full_output, dim=-1)
-                    ###output = torch.concat(full_labels, dim=-1)   # TODO This is just to get the upper bound of the loss
+                    output = torch.concat(full_labels, dim=-1)   # TODO This is just to get the upper bound of the loss
                 else:
                     # TODO: maybe this is ready now? at least until overlap 1/32
                     # TODO: No, it only works when validating the ground truth labels, but not the final predictions

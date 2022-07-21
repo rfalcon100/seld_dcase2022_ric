@@ -314,6 +314,59 @@ def get_adpit_labels_for_file(_desc_file: Dict, _nb_label_frames: int, num_class
     label_mat = np.stack((se_label, x_label, y_label, z_label), axis=2)  # [nb_frames, 6, 4(=act+XYZ), max_classes]
     return label_mat
 
+def get_labels_for_file(_desc_file, _nb_label_frames, num_classes: int = 13):
+    """
+    ADAPATED from csl_feature_class from the baseline, with modifications to remove the dependcy to the class.
+
+    Reads description file and returns classification based SED labels and regression based DOA labels
+    :param _desc_file: metadata description file
+    :return: label_mat: of dimension [nb_frames, 3*max_classes], max_classes each for x, y, z axis,
+    """
+
+    # If using Hungarian net set default DOA value to a fixed value greater than 1 for all axis. We are choosing a fixed value of 10
+    # If not using Hungarian net use a deafult DOA, which is a unit vector. We are choosing (x, y, z) = (0, 0, 1)
+    se_label = np.zeros((_nb_label_frames, num_classes))
+    x_label = np.zeros((_nb_label_frames, num_classes))
+    y_label = np.zeros((_nb_label_frames, num_classes))
+    z_label = np.zeros((_nb_label_frames, num_classes))
+
+    for frame_ind, active_event_list in _desc_file.items():
+        if frame_ind < _nb_label_frames:
+            for active_event in active_event_list:
+                se_label[frame_ind, active_event[0]] = 1
+                x_label[frame_ind, active_event[0]] = active_event[2]
+                y_label[frame_ind, active_event[0]] = active_event[3]
+                z_label[frame_ind, active_event[0]] = active_event[4]
+
+    label_mat = np.concatenate((se_label, x_label, y_label, z_label), axis=1)
+
+    # Refortmat as ACCDOA:
+    output = torch.zeros(size=(3, num_classes, label_mat.shape[0]))
+    output = output.numpy()
+
+    for i in range(se_label.shape[-1]):
+        # coso = se_label[:, i] > 0.5
+        # print(np.count_nonzero(coso))
+        ss = x_label[:, i]
+
+        # bazinga = torch.stack([torch.from_numpy(x_label[:, i]´), y_label[:, i], z_label[:, i]], dim=0)
+        bazinga = np.stack([x_label[:, i], y_label[:, i], z_label[:, i]])
+        output[:, i, :] = bazinga
+    output = torch.from_numpy(output)
+
+    norm = torch.linalg.vector_norm(output, ord=2, dim=-3)
+    output = output / (norm + 1e-10)
+    if torch.any(torch.isnan(output)):
+        raise ValueError('ERROR: NaNs in the otuput labels')
+
+    sampler = resampler(scale_factor=(10))  # TODO: This is incompatible with my test of backeds
+    output = sampler(output)
+    return output.numpy()
+    return label_mat
+
+def _get_labels_custom(time_array, start_sec=start_sec, chunk_size_samples: int, num_classes=13):
+
+
 def _random_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float, trim_wavs: int, clip_length_seconds: int = 60) \
         -> Tuple[torch.Tensor, int]:
     """Returns a random slice of an audio and the corresponding starting time in sencods (useful to extract labels) """
@@ -341,6 +394,14 @@ def _fixed_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float) -> Tuple
     sliced_audio = audio[:, start_sample : int(start_sample + chunk_size_audio)]
     return sliced_audio, start_sec
 
+class resampler(nn.Sequential):
+    def __init__(self, scale_factor=(1, 0.1)):
+        super().__init__()
+        self.scale_factor = scale_factor
+
+    def forward(self, input):
+        out = nn.functional.interpolate(input, scale_factor=self.scale_factor, mode='nearest')
+        return out
 
 class InfiniteDataLoader(DataLoader):
     ''' DataLoader that keeps returning batches even after the dataset is exhausted.
@@ -428,11 +489,16 @@ class DCASE_SELD_Dataset(Dataset):
             if not self.ignore_labels:
                 if self.labels_backend == 'sony':
                     time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
-                else:
+                elif self.labels_backend == 'baseline':
                     time_array = load_output_format_file(fname=fname, directory_root=self.directory_root)
                     time_array = convert_output_format_polar_to_cartesian(time_array)
-                    time_array = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 100),
-                                                                   num_classes=self.num_classes)
+                    if self.multi_track:
+                        time_array = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 100),
+                                                               num_classes=self.num_classes)
+                    else:
+                        time_array = get_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 10))
+                if self.labels_backend == 'custom':
+                    time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
                 self._time_array_dict[fname] = time_array
             self._audios[fname] = audio
             self._fs[fname] = fs
@@ -490,20 +556,28 @@ class DCASE_SELD_Dataset(Dataset):
             if self.labels_backend == 'sony':
                 label = _get_labels(time_array, start_sec=start_sec, fs=fs, chunk_size_audio=labels_duration, rotation_pattern=None,
                                     multi_track=self.multi_track, num_classes=self.num_classes)
+            elif self.labels_backend == 'custom':
+                label = _get_labels_custom(time_array, start_sec=start_sec, fs=fs, chunk_size_audio=labels_duration, num_classes=self.num_classes)
             else:
                 if not self.multi_track:
-                    raise NotImplementedError
-                # TODO Hardcoded fs for laels at 100 ms
-                start_frame = int(start_sec) * 10
-                end_frame = start_frame + math.ceil(labels_duration / fs * 100) + 1
-                #label = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 10), num_classes=self.num_classes)
+                    start_frame = int(start_sec) * 10
+                    end_frame = start_frame + math.ceil(labels_duration / fs * 100) + 1
 
-                if end_frame > time_array.shape[0]:
-                    label = np.concatenate([time_array, np.zeros([end_frame - start_frame - time_array.shape[0], *time_array.shape[1:]])], axis=0)
+                    label = time_array[... , start_frame: end_frame]
+
+                    #raise NotImplementedError
                 else:
-                    label = time_array[start_frame: end_frame, ...]
-                if label.shape[0] < end_frame - start_frame:
-                    label = np.concatenate([label, np.zeros([end_frame - start_frame - label.shape[0], *label.shape[1:]])], axis=0)
+                    # TODO Hardcoded fs for laels at 100 ms
+                    start_frame = int(start_sec) * 10
+                    end_frame = start_frame + math.ceil(labels_duration / fs * 100) + 1
+                    #label = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 10), num_classes=self.num_classes)
+
+                    if end_frame > time_array.shape[0]:
+                        label = np.concatenate([time_array, np.zeros([end_frame - start_frame - time_array.shape[0], *time_array.shape[1:]])], axis=0)
+                    else:
+                        label = time_array[start_frame: end_frame, ...]
+                    if label.shape[0] < end_frame - start_frame:
+                        label = np.concatenate([label, np.zeros([end_frame - start_frame - label.shape[0], *label.shape[1:]])], axis=0)
         else:
             label = np.empty(1)
 
@@ -751,15 +825,17 @@ def test_multi_track():
     - chunk_mode: {'fixed', 'random', 'full'}
     - multi_track: True, False
     - labels_backend: {'sony', 'baseline'}
+
+    -Update 21.07.2022 . Both backends look good for single ACCCDOA. At least they look the same.
     """
     dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
                                  list_dataset='dcase2022_devtrain_debug.txt',
-                                 chunk_mode='full',
+                                 chunk_mode='full',  # test sony and baseline
                                  chunk_size=30480,
                                  trim_wavs=-1,
                                  return_fname=True,
                                  num_classes=13,
-                                 multi_track=True,
+                                 multi_track=False,  # test sony and baseline
                                  labels_backend='baseline')  # test sony and baseline
     audio, labels, fname = dataset[0]
 
@@ -776,6 +852,53 @@ def test_multi_track():
 
     a = 1
 
+def compare_backends():
+    wav_id = 42
+    dataset_sony = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 chunk_mode='full',  # test sony and baseline
+                                 chunk_size=30480,
+                                 trim_wavs=-1,
+                                 return_fname=True,
+                                 num_classes=13,
+                                 multi_track=False,  # test sony and baseline
+                                 labels_backend='sony')  # test sony and baseline
+    dataset_baseline = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 chunk_mode='full',  # test sony and baseline
+                                 chunk_size=30480,
+                                 trim_wavs=-1,
+                                 return_fname=True,
+                                 num_classes=13,
+                                 multi_track=False,  # test sony and baseline
+                                 labels_backend='baseline')  # test sony and baseline
+
+    audio_sony, labels_sony, fname_sony = dataset_sony[wav_id]
+    audio_base, labels_base, fname_base = dataset_baseline[wav_id]
+
+    class t_transform(nn.Sequential):
+        def __init__(self, scale_factor=(1, 0.1)):
+            super().__init__()
+            print(f'helloo, {scale_factor}')
+            self.scale_factor = scale_factor
+
+        def forward(self, input):
+            out = nn.functional.interpolate(input, scale_factor=self.scale_factor, mode='nearest')
+            return out
+
+    target_transform = t_transform()
+    labels_sony_downsample = target_transform(labels_sony[None, ...])[0]
+    labels_sony_padded = torch.zeros_like(labels_base)
+    labels_sony_padded[:, :, 0:labels_sony_downsample.shape[-1]] = labels_sony_downsample
+    error = (labels_base - labels_sony_padded) ** 2
+    print(f'Error = {error.sum()}')
+
+    target_transform2 = t_transform(scale_factor=(1, 10))
+    labels_base_padded = target_transform2(labels_base[None, ...])[0]
+    labels_sony_padded = torch.zeros_like(labels_base_padded)
+    labels_sony_padded[:, :, 0:labels_sony.shape[-1]] = labels_sony
+    error = (labels_base_padded - labels_sony_padded) ** 2
+    print(f'Error = {error.sum()}')
 
 if __name__ == '__main__':
     from utils import seed_everything
