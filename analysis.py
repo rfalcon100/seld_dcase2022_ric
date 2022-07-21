@@ -66,7 +66,7 @@ def plot_histograms_bivariate_azi_ele(targets, threshold=0.5):
 
 def plot_histograms_active_per_class(all_labels: List, all_labels_test: List = None, all_labels_sim: List = None,
                                      splits=['dev-train', 'dev-test', 'synth-set'], detection_threshold=0.5,
-                                     format_use_log=True,
+                                     format_use_log=True, filename='dcase22_hist_active_per_class',
                                      sound_event_classes_2022=['Female speech',
                                                                'Male speech',
                                                                'Clapping',
@@ -92,7 +92,7 @@ def plot_histograms_active_per_class(all_labels: List, all_labels_test: List = N
             vec_norms = torch.linalg.vector_norm(this_label, ord=2, dim=-3)
 
             for cls in range(this_label.shape[-2]):
-                dict_of_dectections[cls] = 0  # Add zero to have the class in the dictionary
+                #dict_of_dectections[cls] = 0  # Add zero to have the class in the dictionary
                 mask_detected_events = vec_norms[cls, :] > detection_threshold  # detected events for this class
                 # mask_detected_events = mask_detected_events.repeat(1, 3, 1)
                 tmp_events = this_label[..., cls, mask_detected_events]
@@ -128,14 +128,32 @@ def plot_histograms_active_per_class(all_labels: List, all_labels_test: List = N
     frames = [df, df2, df3]
     df = pd.concat(frames)
 
-    f, ax = plt.subplots(figsize=(12, 12))
-    g = sns.barplot(y="class_name", x="count", data=df, hue='split', palette='magma')
+    if False:
+        #Vertical plot
+        f, ax = plt.subplots(figsize=(12, 12))
+        g = sns.barplot(y="class_name", x="count", data=df, hue='split', palette='magma')
+        # sns.despine(left=False, bottom=False)
+        if format_use_log:
+            g.set_xscale("log")
+            g.set_xticks([10 ** x for x in range(6)])
+            # g.set_xticklabels(['0','a','b','c','d','e'])
+        plt.show()
+
+    # Horizontal, looks nice
+    f, ax = plt.subplots(figsize=(18, 7))
+    g = sns.barplot(x="class_name", y="count", data=df, hue='split', palette='magma')
+    # g = sns.catplot(x="class_name", kind='count', data=df, hue='split', palette='magma')
     # sns.despine(left=False, bottom=False)
     if format_use_log:
-        g.set_xscale("log")
-        g.set_xticks([10 ** x for x in range(6)])
+        g.set_yscale("log")
+        g.set_yticks([10 ** x for x in range(6)])
         # g.set_xticklabels(['0','a','b','c','d','e'])
+    g.set_xticklabels(g.get_xticklabels(), rotation=35)
+    plt.tight_layout()
+    plt.savefig(f'./figures/{filename}.pdf')
+    plt.savefig(f'./figures/{filename}.png')
     plt.show()
+
 
 def get_data(config):
     dataset_train = DCASE_SELD_Dataset(directory_root=config.dataset_root[0],
@@ -204,19 +222,38 @@ def main():
 
     plot_histograms_active_per_class(targets_train, targets_valid, targets_synth, detection_threshold=0.5)
     plt.savefig('./figures/figure_01_active_per_class.pdf')
+    plt.savefig('./figures/figure_01_active_per_class.png')
     print('End of analysis')
 
 if __name__ == '__main__':
     """ 
-    Run it like this
+    Run it like this  for dcase2022
     -c
     ./configs/run_debug.yaml
     --dataset_trim_wavs
-    5
+    -1
     --dataset_root
     /m/triton/scratch/work/falconr1/sony/data_dcase2022
+    /m/triton/scratch/work/falconr1/sony/data_dcase2022_sim
     --dataset_list_train
     dcase2022_devtrain_all.txt
+    dcase2022_sim_all.txt
+    --dataset_root_valid
+    /m/triton/scratch/work/falconr1/sony/data_dcase2022
+    --dataset_list_valid
+    dcase2022_devtest_all.txt
+    
+    Like this for dcase2021
+        -c
+    ./configs/run_debug.yaml
+    --dataset_trim_wavs
+    -1
+    --dataset_root
+    /m/triton/scratch/work/falconr1/sony/data_dcase2022
+    /m/triton/scratch/work/falconr1/sony/data_dcase2022_sim
+    --dataset_list_train
+    dcase2022_devtrain_all.txt
+    dcase2022_sim_all.txt
     --dataset_root_valid
     /m/triton/scratch/work/falconr1/sony/data_dcase2022
     --dataset_list_valid
