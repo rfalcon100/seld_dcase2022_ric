@@ -21,6 +21,22 @@ from utils import validate_audio
 
 # https://discuss.pytorch.org/t/implementing-an-infinite-loop-dataset-dataloader-combo/35567/4
 
+
+def interpolate(x, ratio):
+    '''
+    Interpolate the x to have equal time steps as targets
+    Input:
+        x: (batch_size, time_steps, class_num)
+    Output:
+        out: (batch_size, time_steps*ratio, class_num)
+    '''
+    (batch_size, time_steps, classes_num) = x.shape
+    upsampled = x[:, :, None, :].repeat(1, 1, ratio, 1)
+    upsampled = upsampled.reshape(batch_size, time_steps * ratio, classes_num)
+
+    return upsampled
+
+
 def convert_output_format_polar_to_cartesian(in_dict):
     out_dict = {}
     for frame_cnt in in_dict.keys():
@@ -316,7 +332,7 @@ def get_adpit_labels_for_file(_desc_file: Dict, _nb_label_frames: int, num_class
 
 def get_labels_for_file(_desc_file, _nb_label_frames, num_classes: int = 13):
     """
-    ADAPATED from csl_feature_class from the baseline, with modifications to remove the dependcy to the class.
+    ADAPTED from csl_feature_class from the baseline, with modifications to remove the dependcy to the class.
 
     Reads description file and returns classification based SED labels and regression based DOA labels
     :param _desc_file: metadata description file
@@ -359,13 +375,17 @@ def get_labels_for_file(_desc_file, _nb_label_frames, num_classes: int = 13):
     if torch.any(torch.isnan(output)):
         raise ValueError('ERROR: NaNs in the otuput labels')
 
-    sampler = resampler(scale_factor=(10))  # TODO: This is incompatible with my test of backeds
-    output = sampler(output)
+    ####sampler = resampler(scale_factor=(10))  # TODO: This is incompatible with my test of backeds
+    ####output = sampler(output)
+
+    #output = interpolate(output.detatch().cpu().numpy(), 10)  # TODO Not tested
+
+    output = torch.repeat_interleave(output, 10, dim=-1)   # TODO his is better, but still gets bad when the output size is large
     return output.numpy()
     return label_mat
 
-def _get_labels_custom(time_array, start_sec=start_sec, chunk_size_samples: int, num_classes=13):
-
+def _get_labels_custom(time_array, start_sec, chunk_size_samples: int, num_classes=13):
+    pass
 
 def _random_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float, trim_wavs: int, clip_length_seconds: int = 60) \
         -> Tuple[torch.Tensor, int]:
@@ -459,7 +479,8 @@ class DCASE_SELD_Dataset(Dataset):
                  multi_track: bool = False,
                  num_classes: int = 13,
                  ignore_labels: bool = False,
-                 labels_backend: str = 'sony'):
+                 labels_backend: str = 'sony',
+                 pad_labels: bool = True):
         super().__init__()
         self.directory_root = directory_root
         self.list_dataset = list_dataset  # list of wav filenames  , e.g. './data_dcase2021_task3/foa_dev/dev-val/fold5_room1_mix001.wav'
@@ -471,6 +492,7 @@ class DCASE_SELD_Dataset(Dataset):
         self.num_classes = num_classes
         self.ignore_labels = ignore_labels  # This is to avoid loading labels. Useful when doing evaluation.
         self.labels_backend = labels_backend  # Code to use when extracting labels from CSVs. For multitrack, we need the baseline. {'sony', 'backend'}
+        self.pad_labels = pad_labels  # This is just to take into account that spectrograms will pad . Use when backend == baseline, and model = CRNN
         self.resampler = None
 
         if self.multi_track and self.labels_backend == 'sony':
@@ -530,6 +552,7 @@ class DCASE_SELD_Dataset(Dataset):
         fmt_str += '    Trim audio: {}\n'.format(self.trim_wavs)
         fmt_str += '    Multi_track: {}\n'.format(self.multi_track)
         fmt_str += '    Ignore labels: {}\n'.format(self.ignore_labels)
+        fmt_str += '    Labels Backend: {}\n'.format(self.labels_backend)
         return fmt_str
 
     def __getitem__(self, item):
@@ -561,7 +584,9 @@ class DCASE_SELD_Dataset(Dataset):
             else:
                 if not self.multi_track:
                     start_frame = int(start_sec) * 10
-                    end_frame = start_frame + math.ceil(labels_duration / fs * 100) + 1
+                    end_frame = start_frame + round(labels_duration / fs * 100)
+                    if self.pad_labels:
+                        end_frame += 1
 
                     label = time_array[... , start_frame: end_frame]
 
@@ -646,11 +671,14 @@ def _get_padders(chunk_size_seconds: float = 1.27,
                  duration_seconds: float = 60.0,
                  overlap: float = 0.5,
                  audio_fs=24000, labels_fs=100):
+
+
     # Wavs:
     fs = audio_fs
     audio_full_size = fs * duration_seconds
     audio_chunk_size = round(fs * chunk_size_seconds)
-    audio_pad_size = math.ceil(audio_full_size / audio_chunk_size) + math.ceil(audio_fs / labels_fs * 1)
+    ###audio_pad_size = math.ceil(audio_full_size / audio_chunk_size) + math.ceil(audio_fs / labels_fs * 1)
+    audio_pad_size = (math.ceil(audio_full_size / audio_chunk_size) * audio_chunk_size) - audio_full_size
     audio_padder = nn.ConstantPad1d(padding=(0, audio_pad_size), value=0.0)
     audio_step_size = math.floor(audio_chunk_size * overlap)
 
@@ -658,9 +686,21 @@ def _get_padders(chunk_size_seconds: float = 1.27,
     labels_fs = labels_fs  # 100 --> 10 ms
     labels_full_size = labels_fs * duration_seconds
     labels_chunk_size = round(labels_fs * chunk_size_seconds) + 1
-    labels_pad_size = math.ceil(labels_full_size / labels_chunk_size) + 1
+    labels_pad_size = math.ceil(labels_full_size / labels_chunk_size) * labels_chunk_size - labels_full_size
     labels_padder = nn.ConstantPad2d(padding=(0, labels_pad_size, 0, 0), value=0.0)
     labels_step_size = math.ceil(labels_chunk_size * overlap)
+
+    # Additional padding, in case the labels are shorter than the audio
+    while True:
+        #num_chunks_audio = math.ceil(audio_full_size / audio_chunk_size)
+        #num_chunks_labels = math.ceil(labels_full_size / labels_chunk_size)
+        num_chunks_audio = (audio_full_size + audio_pad_size) / audio_chunk_size
+        num_chunks_labels = (labels_full_size + labels_pad_size) / labels_chunk_size
+        if num_chunks_labels < num_chunks_audio:
+            labels_pad_size += labels_chunk_size
+            labels_padder = nn.ConstantPad2d(padding=(0, labels_pad_size, 0, 0), value=0.0)
+        else:
+            break
 
     audio_padding = {'padder': audio_padder,
                      'chunk_size': audio_chunk_size,
@@ -831,12 +871,13 @@ def test_multi_track():
     dataset = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
                                  list_dataset='dcase2022_devtrain_debug.txt',
                                  chunk_mode='full',  # test sony and baseline
-                                 chunk_size=30480,
+                                 chunk_size=30480,  # 30480, 61200, 122640, 144000, with fixed chunk
                                  trim_wavs=-1,
                                  return_fname=True,
                                  num_classes=13,
                                  multi_track=False,  # test sony and baseline
-                                 labels_backend='baseline')  # test sony and baseline
+                                 labels_backend='baseline',   # test sony and baseline
+                                 pad_labels=True)   # True only for spectrograms
     audio, labels, fname = dataset[0]
 
     if len(labels.shape) > 3:
@@ -855,7 +896,7 @@ def test_multi_track():
 def compare_backends():
     wav_id = 42
     dataset_sony = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 list_dataset='dcase2022_devtrain_all.txt',
                                  chunk_mode='full',  # test sony and baseline
                                  chunk_size=30480,
                                  trim_wavs=-1,
@@ -864,7 +905,7 @@ def compare_backends():
                                  multi_track=False,  # test sony and baseline
                                  labels_backend='sony')  # test sony and baseline
     dataset_baseline = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
-                                 list_dataset='dcase2022_devtrain_debug.txt',
+                                 list_dataset='dcase2022_devtrain_all.txt',
                                  chunk_mode='full',  # test sony and baseline
                                  chunk_size=30480,
                                  trim_wavs=-1,
@@ -899,6 +940,46 @@ def compare_backends():
     labels_sony_padded[:, :, 0:labels_sony.shape[-1]] = labels_sony
     error = (labels_base_padded - labels_sony_padded) ** 2
     print(f'Error = {error.sum()}')
+
+def compare_backends_no_pad():
+    # Update 22.07.2022
+    # This seems ok for now, there is a slight mismatch between total length when using the backends
+    # and there is a big problem with the osny backend, that it is chopping up some events
+    # But for now I can work with the baselinme backend
+    dataset_sony = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                      list_dataset='dcase2022_devtrain_all.txt',
+                                      chunk_mode='full',  # test sony and baseline
+                                      chunk_size=30480,
+                                      trim_wavs=-1,
+                                      return_fname=True,
+                                      num_classes=13,
+                                      multi_track=False,  # test sony and baseline
+                                      labels_backend='sony')  # test sony and baseline
+    dataset_baseline = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
+                                          list_dataset='dcase2022_devtrain_all.txt',
+                                          chunk_mode='full',  # test sony and baseline
+                                          chunk_size=30480,
+                                          trim_wavs=-1,
+                                          return_fname=True,
+                                          num_classes=13,
+                                          multi_track=False,  # test sony and baseline
+                                          labels_backend='baseline')  # test sony and baseline
+
+    for wav_id in range(len(dataset_sony)):
+        audio_sony, labels_sony, fname_sony = dataset_sony[wav_id]
+        audio_base, labels_base, fname_base = dataset_baseline[wav_id]
+
+        error = (labels_sony[..., 0:labels_base.shape[-1]] - labels_base) ** 2
+        print(f'Error = {error.sum()}')
+
+    # Look at some of them
+    wav_id = 1
+    audio_sony, labels_sony, fname_sony = dataset_sony[wav_id]
+    audio_base, labels_base, fname_base = dataset_baseline[wav_id]
+
+    plots.plot_labels_cross_sections(labels_sony, title='Sony')
+    plots.plot_labels_cross_sections(labels_base, title='Baseline')
+
 
 if __name__ == '__main__':
     from utils import seed_everything

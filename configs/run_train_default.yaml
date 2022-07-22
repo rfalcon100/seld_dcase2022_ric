@@ -10,6 +10,7 @@ mode: train             # ['train', 'valid', 'eval']
 debug: false
 logging_dir: './logging'
 wandb: false
+oracle_mode: false
 
 num_iters: 200000
 batch_size: 32
@@ -46,6 +47,7 @@ dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55 or 5.11
 dataset_chunk_mode: random        # ['random', 'fixed', 'full']
 dataset_multi_track: false
 dataset_backend: sony
+dataset_ignore_pad_labels: false
 dataset_trim_wavs: -1
 dataset_root: ['/m/triton/scratch/work/falconr1/sony/data_dcase2022', "/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim"]
 dataset_list_train: ['dcase2022_devtrain_all.txt', 'dcase2022_sim_all.txt']

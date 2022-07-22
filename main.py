@@ -43,6 +43,7 @@ def get_dataset(config):
                                          multi_track=config.dataset_multi_track,
                                          num_classes=config.unique_classes,
                                          labels_backend=config.dataset_backend,
+                                         pad_labels=not config.dataset_ignore_pad_labels,
                                          return_fname=False)
         datasets_train.append(dataset_tmp)
     dataset_train = torch.utils.data.ConcatDataset(datasets_train)
@@ -57,6 +58,7 @@ def get_dataset(config):
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
                                        labels_backend=config.dataset_backend,
+                                       pad_labels=not config.dataset_ignore_pad_labels,
                                        return_fname=True)
 
     return dataloader_train, dataset_valid
@@ -312,7 +314,7 @@ def main():
             def __int__(self):
                 super().__init__()
             def forward(self, input):
-                out = nn.functional.interpolate(input, scale_factor=(1, 0.1), mode='nearest')
+                out = nn.functional.interpolate(input, scale_factor=(1, 0.1), mode='nearest-exact')
                 return out
         target_transform = t_transform()
     else:
@@ -653,6 +655,12 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             full_output = []
             full_loss = []
             full_labels = []
+            if audio_chunks.shape[0] != labels_chunks.shape[0]:
+                a = 1
+            if audio_chunks.shape[0] > labels_chunks.shape[0]:
+                audio_chunks = audio_chunks[0:labels_chunks.shape[0], ...]  # Mmm... lets drop the extra audio chunk if there are no labels for it
+            if audio_chunks.shape[0] < labels_chunks.shape[0]:
+                audio_chunks = torch.concat([audio_chunks, torch.zeros_like(audio_chunks[0:1])])  # Mmm... lets add an empty audio slice
             tmp = torch.utils.data.TensorDataset(audio_chunks, labels_chunks)
             loader = DataLoader(tmp, batch_size=1, shuffle=False, drop_last=False)  # Loader per wav to get batches
             for ctr, (audio, labels) in enumerate(loader):
@@ -661,12 +669,15 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 if target_transform is not None:
                     labels = target_transform(labels)
                 output = model(audio)
-                output = torch.zeros_like(labels)  # TODO This is just to get the upper bound of the loss
-                ###output = torch.zeros(size=(labels.shape[0], labels.shape[1], 3*3*12), device=device)  # TODO This is just to get the upper bound of the loss wih mACCDOA
+                if config.oracle_mode:
+                    output = torch.zeros_like(labels)  # TODO This is just to get the upper bound of the loss
+                    if config.dataset_multi_track:
+                        output = torch.zeros(size=(labels.shape[0], labels.shape[1], 3*3*12), device=device)  # TODO This is just to get the upper bound of the loss wih mACCDOA
                 loss = solver.loss_fns[solver.loss_names[0]](output, labels)
                 full_output.append(output)
                 full_loss.append(loss)
-                full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
+                if config.oracle_mode:
+                    full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
                 if torch.isnan(loss):
                     a = 1
 
@@ -676,28 +687,38 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             else:
                 if overlap == 1:
                     output = torch.concat(full_output, dim=-1)
-                    output = torch.concat(full_labels, dim=-1)   # TODO This is just to get the upper bound of the loss
+                    if config.oracle_mode:
+                        output = torch.concat(full_labels, dim=-1)   # TODO This is just to get the upper bound of the loss
                 else:
                     # TODO: maybe this is ready now? at least until overlap 1/32
                     # TODO: No, it only works when validating the ground truth labels, but not the final predictions
                     # Rebuild when using overlap
                     # This is basically a folding operation, using an average of the predictions of each overlapped chunk
                     aa = len(full_output) - 1
-                    ###full_output = full_labels # TODO This is just to get the upper bound of the loss
+                    if config.oracle_mode:
+                        full_output = full_labels # TODO This is just to get the upper bound of the loss
                     resulton = torch.zeros(aa, labels.shape[-3], labels.shape[-2], labels_padding['full_size'] + labels_padding['padder'].padding[-3])
-                    weights = torch.zeros(1, labels_padding['full_size'] + labels_padding['padder'].padding[-3])
+                    resulton = torch.zeros(aa, labels.shape[-3], labels.shape[-2],
+                                           labels_padding['full_size'] + labels_padding['padder'].padding[-3] + labels_padding['hop_size'])
+                    weights = torch.zeros(1, labels_padding['full_size'] + labels_padding['padder'].padding[-3] + labels_padding['hop_size'])
                     for ii in range(0, aa):
                         #print(ii)
                         start_i = ii * labels_padding['hop_size']
                         end_i = start_i + round(labels_padding['hop_size'] * 1/1)
+                        end_i = start_i + round(labels_padding['chunk_size'] * 1 / 1)
+                        if end_i > resulton.shape[-1]:  # Drop the last part
+                            end_i = resulton.shape[-1]
                         #yolingon = full_output[ii][0]
                         try:
-                            resulton[ii, :, :, start_i:end_i] = full_output[ii][0]
+                            resulton[ii, :, :, start_i:end_i] = full_output[ii][0,..., 0:end_i-start_i]
                         except:
                             a = 1
+                            warnings.warn('WARNING: Error while evaluating with overlap')
                         weights[:, start_i:end_i] = weights[:, start_i:end_i] + 1
 
                     output = torch.sum(resulton, dim=0, keepdim=True) / weights
+                    if torch.any(torch.isnan(output)):
+                        warnings.warn('WARNING: NaNs detected in output')
 
             # Apply detection threshold based on vector norm
             if config.dataset_multi_track:
@@ -716,10 +737,10 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             # Downsample over frames:
             if config.dataset_multi_track:
                 if target_transform is None:
-                    output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='area').permute(0, 2, 1)
+                    output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='nearest-exact').permute(0, 2, 1)
             else:
                 if target_transform is None:
-                    output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
+                    output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='nearest-exact')
 
                 # I think the baseline code needs this in [batch, frames, classes*coords]
                 output = output.permute([0, 3, 1, 2])
@@ -933,10 +954,10 @@ def evaluation(config, dataset, solver, features_transform, target_transform: [n
             # Downsample over frames:
             if config.dataset_multi_track:
                 if target_transform is None:
-                    output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='area').permute(0, 2, 1)
+                    output = nn.functional.interpolate(output.permute(0, 2, 1), scale_factor=(0.1), mode='nearest-exact').permute(0, 2, 1)
             else:
                 if target_transform is None:
-                    output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='area')
+                    output = nn.functional.interpolate(output, scale_factor=(1, 0.1), mode='nearest-exact')
 
                 # I think the baseline code needs this in [batch, frames, classes*coords]
                 output = output.permute([0, 3, 1, 2])
