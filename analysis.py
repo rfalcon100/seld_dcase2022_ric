@@ -37,6 +37,25 @@ sns.set_theme(context='notebook', style='darkgrid', palette='deep', font='sans-s
 #active_targets = targets[..., mask_active_per_frames[-1]]  # [batch, 3, n_classes, frames]
 
 
+def plot_active_trajectories(targets: Union[torch.Tensor, List], threshold=0.5, xlim=10000, batch_id=0):
+    """ Plots the trajectories for all frames that have at least 1 active source
+    Call it with targets as a tensor, to plot all the wavs together.
+    Call it with targets as a List, and only the batch_id wav will be plotted"""
+    if isinstance(targets, List):
+        targets = torch.stack(targets, dim=0)
+
+    assert len(targets.shape) == 4, 'Should be [batch, 3, n_classes, frames]'
+
+    # Find active frames (where at least 1 class has norm > threshold)
+    norma = torch.linalg.vector_norm(targets, ord=2, dim=-3)  # [batch, n_classes, frames]
+    mask_active_per_frames = torch.any(norma > threshold, dim=-2)  # [batch, frames]
+    active_targets = targets[..., mask_active_per_frames[-1]]  # [batch, 3, n_classes, frames]
+
+    print(f'All frames shape: {targets.shape}')
+    print(f'Active frames with at least 1 active class shape: {active_targets.shape}')
+
+    plots.plot_labels_cross_sections(active_targets[batch_id, ..., 0:xlim])
+
 def plot_histograms_bivariate_azi_ele(targets, threshold=0.5):
     """ Here I plot the 2d histograms of azimuths and elevations"""
     assert len(targets.shape) == 4, 'Should be [batch, 3, n_classes, frames]'
@@ -49,9 +68,6 @@ def plot_histograms_bivariate_azi_ele(targets, threshold=0.5):
     print(f'All frames shape: {targets.shape}')
     print(f'Active frames with at least 1 active class shape: {active_targets.shape}')
 
-    # Optional, look at the trayectories:
-    plots.plot_labels_cross_sections(active_targets[0, ..., 0:100000])
-
     # Reshape into points (or DOAs), and find active frames of any class
     active_targets = active_targets.permute((0,2,3,1)).reshape((-1, 3)).contiguous()  # [batch * n_classes * frames, 3]
     norma = torch.linalg.vector_norm(active_targets, ord=2, dim=-1)
@@ -61,7 +77,6 @@ def plot_histograms_bivariate_azi_ele(targets, threshold=0.5):
 
     plots.plot_distribution_azi_ele(active_targets_all_classes, type='hex', log_scale=True, title='Original', gridsize=30, bins=20)
     # plots.plot_distribution_azi_ele(active_targets_all_classes, type='hist', log_scale=False, title='Original', cmin=1, gridsize=100)
-
 
 def plot_histograms_active_per_class(all_labels: List, all_labels_test: List = None, all_labels_sim: List = None,
                                      splits=['dev-train', 'dev-test', 'synth-set'], detection_threshold=0.5,
@@ -152,7 +167,8 @@ def plot_histograms_active_per_class(all_labels: List, all_labels_test: List = N
     plt.savefig(f'./figures/{filename}.png')
     plt.show()
 
-def plot_histograms_polyphony(targets: List, detection_threshold=0.5, format_use_log=False, chunk_size=128):
+def plot_histograms_polyphony(targets: List, detection_threshold=0.5, format_use_log=False, chunk_size=128,
+                              splits=['dev-train', 'dev-test', 'synth-set'], filename=None):
     # Here I test a small plot to get histograms of active sources per chunk
     # This is the polyphony
     # 17.03 it kinda works now
@@ -177,40 +193,126 @@ def plot_histograms_polyphony(targets: List, detection_threshold=0.5, format_use
         all_active_sources.append(n_active_sources)
     all_active_sources = torch.tensor(all_active_sources)
 
-    # Plot
+    # OLD Plot, with matplotlib
     fig = plt.figure()
     plt.hist(all_active_sources.detach().cpu().numpy(), bins=[0, 1, 2, 3, 5, 6, 7, 8], density=True)
     ax = plt.gca()
     ax.set_title(f'n_examples = {n_examples} chunk_size = {chunk_size}')
     plt.show()
 
-    return
-    # Ths is not ready
-
-    # TODO This is not ready
+    # TODO work in progress
     # Plot with sns
-    df = pd.DataFrame(list(all_active_sources.items()))
-    df.columns = ['polyphony', 'count']
-    #df['polyphony'] = sound_event_classes_2022
-    #split = [splits[0]] * len(sound_event_classes_2022)
-    #df['split'] = split
+
+    df = pd.DataFrame(all_active_sources)
+    df.columns = ['count']
+    # df['polyphony'] = sound_event_classes_2022
+    split = [splits[0]] * all_active_sources.shape[-1]
+    df['split'] = split
 
     # Horizontal, looks nice
-    f, ax = plt.subplots(figsize=(18, 7))
-    g = sns.barplot(x="polyphony", y="count", data=df, palette='magma')
-    # g = sns.catplot(x="class_name", kind='count', data=df, hue='split', palette='magma')
+    f, ax = plt.subplots(figsize=(7, 7))
+    # g = sns.displot(df, x='count', discrete=True, stat="proportion", hue="split", palette='magma', ax=ax)  # This looks nice
+    g = sns.histplot(df, x='count', hue='split', stat='count', palette='magma', binrange=[0,8], discrete=True)
+    ###g = sns.barplot(x="polyphony", y="count", data=df, palette='magma')
+    ###g = sns.catplot(x="count", kind='count', data=df, hue='split', palette='magma')
     # sns.despine(left=False, bottom=False)
     if format_use_log:
         g.set_yscale("log")
         g.set_yticks([10 ** x for x in range(6)])
         # g.set_xticklabels(['0','a','b','c','d','e'])
-    g.set_xticklabels(g.get_xticklabels(), rotation=35)
-    plt.tight_layout()
-    #plt.savefig(f'./figures/{filename}.pdf')
-    #plt.savefig(f'./figures/{filename}.png')
+    # g.set_xticklabels(g.get_xticklabels(), rotation=35)
+    # plt.tight_layout()
+    ax.set_title(f'n_examples = {n_examples} chunk_size = {chunk_size}')
+    if filename is not None:
+        plt.savefig(f'./figures/{filename}.pdf')
+        plt.savefig(f'./figures/{filename}.png')
     plt.show()
 
-def plot_speed_and_acceleration(targets, format_use_log=False, chunk_size=128):
+
+def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13):
+    # Based on test_friday from GANtestbe
+    # So this is a test to get the velocity using real data
+    # I think it works ok, the plot and the numbers look like they match
+    # This is good
+    if isinstance(targets, List):
+        y = torch.stack(targets, dim=0)
+    else:
+        y = targets
+
+    assert len(y.shape) == 4, 'Should be [batch, 3, n_classes, frames]'
+
+    n_class = 1
+    # n_examples = y.shape[0]
+    n_examples = len(targets)
+    radius = 1
+    y_velocity = torch.diff(y, dim=-1) * 10  # Optional , multiply y_velocity * 10 to get meters/sec
+    y_speed = torch.linalg.vector_norm(y_velocity, ord=2, dim=-3) * radius
+    y_acceleration = torch.diff(y_velocity, dim=-1)  # Magnitude over channels
+    y_acceleration_mag = torch.linalg.vector_norm(y_acceleration, ord=2, dim=-3)
+
+    # And histograms
+    n_class = range(0, num_classes)  # This is we want all classes
+    y_speed_truncated = y_speed[:, n_class, :]
+    y_speed_truncated = y_speed_truncated[y_speed_truncated > 0.001]
+    y_speed_truncated[y_speed_truncated > 1] = 1
+    y_acceleration_truncated = y_acceleration_mag[:, n_class, :]
+    y_acceleration_truncated = y_acceleration_truncated[y_acceleration_truncated > 0.001]
+    y_acceleration_truncated[y_acceleration_truncated > 1] = 1
+
+    # All classes together
+    yolo = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
+    yolo_y = yolo.detach().cpu().numpy().flatten()
+    yolo_y = yolo_y[yolo_y > 1e-5]
+    yolo_y[yolo_y > 1] = 1
+
+    fig = plt.figure()
+    g = sns.histplot(yolo_y, log_scale=True)
+    ax = plt.gca()
+    # ax.set_xlim([0.0, 0.1])
+    ax.set_title(f'speed of non zero, truncated > 1')
+    if False:
+        ###g.set_xscale("log")
+        ####g.set_xticks([10 ** x for x in range(2)])
+        #### g.set_xticklabels(['0','a','b','c','d','e'])
+        g.set_xticks([0.0, 0.2, 0.4, 0.8, 1.0])
+    plt.show()
+
+    # Speed, by class
+    yolo = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
+    yolo_x = np.repeat(np.arange(num_classes), yolo.shape[-1])
+    yolo_y = yolo.detach().cpu().numpy().flatten()
+    ids = yolo_y > 0.0001
+    yolo_y[yolo_y > 1] = 1
+
+    fig = plt.figure()
+    g = sns.violinplot(yolo_y[ids], yolo_x[ids], orient='h')
+    ax = plt.gca()
+    # ax.set_xlim([0.0, 0.1])
+    ax.set_title('speed')
+    if False:
+        g.set_xscale("log")
+        g.set_xticks([10 ** x for x in range(2)])
+        # g.set_xticklabels(['0','a','b','c','d','e'])
+    plt.show()
+
+    # Acceleration, by class
+    yolo = y_acceleration_mag.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
+    yolo_x = np.repeat(np.arange(num_classes), yolo.shape[-1])
+    yolo_y = yolo.detach().cpu().numpy().flatten()
+    ids = yolo_y > 0.0001
+    fig = plt.figure()
+    g = sns.boxplot(yolo_x[ids], yolo_y[ids])
+    ax = plt.gca()
+    # ax.set_xlim([0.0, 0.1])
+    if format_use_log:
+        g.set_yscale("log")
+        g.set_yticks([10 ** x for x in range(6)])
+        # g.set_xticklabels(['0','a','b','c','d','e'])
+    ax.set_title('acceleration')
+    plt.show()
+
+
+def plot_speed_and_acceleration_OLD(targets, format_use_log=False, chunk_size=128):
     # Based on test_friday from GANtestbe
     # So this is a test to get the velocity using real data
     # I think it works ok, the plot and the numbers look like they match
@@ -219,15 +321,19 @@ def plot_speed_and_acceleration(targets, format_use_log=False, chunk_size=128):
     n_class = 11
     plot_range = range(3500, 4000)
     y = torch.concat(targets, dim=-1)[None,...]   # concat over frames
+    y = torch.stack(targets, dim=0)
     #n_examples = y.shape[0]
     n_examples = len(targets)
 
-    y_velocity = torch.diff(y, dim=-1)    # Optional , multiply y_velocity * 10 to get meters/sec
-    y_acceleration = torch.diff(y_velocity, dim=-1)
-    y_speed = torch.linalg.vector_norm(y_velocity, ord=2, dim=-3)  # Magnitude over channels
+    radius = 1
+    y_velocity = torch.diff(y, dim=-1) * 10  # Optional , multiply y_velocity * 10 to get meters/sec
+    y_speed = torch.linalg.vector_norm(y_velocity, ord=2, dim=-3) * radius
+    y_acceleration = torch.diff(y_velocity, dim=-1)  # Magnitude over channels
+    y_acceleration_mag = torch.linalg.vector_norm(y_acceleration, ord=2, dim=-3)
 
-    plots.plot_labels(y, title='y')
-    plots.plot_labels_cross_sections(y, title='y')
+    if n_examples == 1:
+        plots.plot_labels(y, title='y')
+        plots.plot_labels_cross_sections(y, title='y')
 
     # Spherical coords
     y_spherical = np.zeros_like(y)
@@ -256,24 +362,48 @@ def plot_speed_and_acceleration(targets, format_use_log=False, chunk_size=128):
     # And histograms
     # Another option is to not do it by class
     n_class = range(0, 13)  # This is we want all classes
-    y_speed_truncated = y_speed[n_class, :]
+    y_speed_truncated = y_speed[:, n_class, :]
     y_speed_truncated = y_speed_truncated[y_speed_truncated > 0.001]
     y_speed_truncated[y_speed_truncated > 1] = 1
 
+    yolo = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
     fig = plt.figure()
-    plt.hist(y_speed_truncated.detach().cpu().numpy(), density=True, bins=30)
-    # plt.violinplot(y_speed, vert=False, showextrema=False, showmedians=True)
+    #plt.hist(y_speed_truncated.detach().cpu().numpy(), density=True, bins=30)
+    plt.violinplot(yolo[0:10,0:100000].detach().cpu().numpy().transpose(1,0), vert=False, showextrema=False, showmedians=True)
     ax = plt.gca()
     # ax.set_xlim([0.0, 0.1])
     ax.set_title('Speed')
     plt.show()
 
+    # Update 26.05.2022
+    # This looks ok ish 
+    yolo = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
+    #df = pd.DataFrame(yolo.detach().cpu().numpy())
+
+    yolo_x = np.repeat(np.arange(12), yolo.shape[-1])
+    yolo_y = yolo.detach().cpu().numpy().flatten()
+    ids = yolo_y > 0.0001
+
+    fig = plt.figure()
+    sns.boxplot(yolo_x[ids], yolo_y[ids])
+    ax = plt.gca()
+    # ax.set_xlim([0.0, 0.1])
+    ax.set_title('test')
+    plt.show()
+
     # TODO This is not ready
-    y_acceleration_mag = torch.linalg.vector_norm(y_acceleration, ord=2, dim=-3)
+
     n_class = range(0, 13)  # This is we want all classes
     y_acceleration_truncated = y_acceleration_mag[n_class, :]
     y_acceleration_truncated = y_acceleration_truncated[y_acceleration_truncated > 0.001]
     y_acceleration_truncated[y_acceleration_truncated > 1] = 1
+
+
+    df = pd.DataFrame(y_speed)
+    df.columns = ['speed']
+    # df['polyphony'] = sound_event_classes_2022
+    split = [splits[0]] * all_active_sources.shape[-1]
+    df['split'] = split
 
     fig = plt.figure()
     plt.hist(y_acceleration_truncated.detach().cpu().numpy(), density=True, bins=30)
@@ -292,7 +422,7 @@ def get_data(config):
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
-                                       labels_backend='sony',
+                                       labels_backend=config.dataset_backend,
                                        return_fname=False)
 
     dataset_valid = DCASE_SELD_Dataset(directory_root=config.dataset_root_valid,
@@ -302,9 +432,10 @@ def get_data(config):
                                        trim_wavs=config.dataset_trim_wavs,
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
-                                       labels_backend='sony',
+                                       labels_backend=config.dataset_backend,
                                        return_fname=False)
 
+    dataset_synth = None
     if len(config.dataset_list_train) > 1:
         dataset_synth = DCASE_SELD_Dataset(directory_root=config.dataset_root[1],
                                            list_dataset=config.dataset_list_train[1],
@@ -313,7 +444,7 @@ def get_data(config):
                                            trim_wavs=config.dataset_trim_wavs,
                                            multi_track=config.dataset_multi_track,
                                            num_classes=config.unique_classes,
-                                           labels_backend='sony',
+                                           labels_backend=config.dataset_backend,
                                            return_fname=False)
 
     return dataset_train, dataset_valid, dataset_synth
@@ -322,6 +453,7 @@ def get_data(config):
 
 def main():
     config = get_parameters()
+
     dataset_train, dataset_valid, dataset_synth = get_data(config)
 
     targets_train = []
@@ -340,28 +472,33 @@ def main():
 
     targets_synth = []
     print('Reading files synthetic..... ')
-    for _, tmp in tqdm(dataset_synth):
-        targets_synth.append(tmp)
-#    targets_synth_flat = torch.concat(targets_synth, dim=-1)   # concat along frames, in case files have different length
-#    targets_synth_flat = targets_synth_flat[None, ...]
+    if dataset_synth is not None:
+        for _, tmp in tqdm(dataset_synth):
+            targets_synth.append(tmp)
+    #    targets_synth_flat = torch.concat(targets_synth, dim=-1)   # concat along frames, in case files have different length
+    #    targets_synth_flat = targets_synth_flat[None, ...]
 
     print('Start analysis')
     dataset_train, dataset_valid, dataset_synth = None, None, None  # Free memory
-    #####plot_histograms_bivariate_azi_ele(targets_valid_flat)
+    #plot_active_trajectories(targets_train, xlim=1000)  # single wav
+    plot_active_trajectories(targets_train_flat, xlim=100000)  # all wavs, flatted
 
-    #####plot_histograms_active_per_class(targets_train, targets_valid, targets_synth, detection_threshold=0.5)
+    plot_histograms_bivariate_azi_ele(targets_valid_flat)
+
+    #########plot_histograms_active_per_class(targets_train, targets_valid, targets_synth, detection_threshold=0.5)
     #####plt.savefig('./figures/figure_01_active_per_class.pdf')
     #####plt.savefig('./figures/figure_01_active_per_class.png')
     print('End of analysis')
 
+    # Ok for 1 dataset
     plot_histograms_polyphony(targets_train, detection_threshold=0.5, format_use_log=False, chunk_size=128)
-    plt.savefig('./figures/figure_01_active_per_class.pdf')
-    plt.savefig('./figures/figure_01_active_per_class.png')
+    #plt.savefig('./figures/figure_01_polyphony.pdf')
+    #plt.savefig('./figures/figure_01_polyphony.png')
     print('End of analysis')
 
-    plot_speed_and_acceleration(targets_train)
-    plt.savefig('./figures/figure_01_active_per_class.pdf')
-    plt.savefig('./figures/figure_01_active_per_class.png')
+    plot_speed_and_acceleration(targets_train_flat, num_classes=config.unique_classes)
+    #plt.savefig('./figures/figure_01_speed_acceleration.pdf')
+    #plt.savefig('./figures/figure_01_speed_acceleration.png')
     print('End of analysis')
 
 if __name__ == '__main__':
@@ -384,26 +521,34 @@ if __name__ == '__main__':
     --dataset_list_valid
     dcase2022_devtest_all.txt
     
+    
+    
+    
     Like this for dcase2021
-        -c
+    -c
     ./configs/run_debug.yaml
     --dataset_trim_wavs
     -1
+    --dataset_backend
+    baseline
     --dataset_root
-    /m/triton/scratch/work/falconr1/sony/data_dcase2022
-    /m/triton/scratch/work/falconr1/sony/data_dcase2022_sim
+    /m/triton/scratch/work/falconr1/sony/data_dcase2021_task3
     --dataset_list_train
-    dcase2022_devtrain_all.txt
-    dcase2022_sim_all.txt
+    dcase2021t3_foa_devtrain.txt
     --dataset_root_valid
-    /m/triton/scratch/work/falconr1/sony/data_dcase2022
+    /m/triton/scratch/work/falconr1/sony/data_dcase2021_task3
     --dataset_list_valid
-    dcase2022_devtest_all.txt
+    dcase2021t3_foa_devtest.txt
+    
+
+
     
     -c
     ./configs/run_debug.yaml
     --dataset_trim_wavs
     -1
+    --dataset_backend
+    baseline
     --dataset_root
     /m/triton/scratch/work/falconr1/sony/data_dcase2022
     /m/triton/scratch/work/falconr1/sony/data_dcase2022
