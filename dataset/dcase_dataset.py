@@ -36,7 +36,6 @@ def interpolate(x, ratio):
 
     return upsampled
 
-
 def convert_output_format_polar_to_cartesian(in_dict):
     out_dict = {}
     for frame_cnt in in_dict.keys():
@@ -384,9 +383,6 @@ def get_labels_for_file(_desc_file, _nb_label_frames, num_classes: int = 13):
     return output.numpy()
     return label_mat
 
-def _get_labels_custom(time_array, start_sec, chunk_size_samples: int, num_classes=13):
-    pass
-
 def _random_slice(audio: torch.Tensor, fs: int, chunk_size_audio: float, trim_wavs: int, clip_length_seconds: int = 60) \
         -> Tuple[torch.Tensor, int]:
     """Returns a random slice of an audio and the corresponding starting time in sencods (useful to extract labels) """
@@ -468,6 +464,8 @@ class DCASE_SELD_Dataset(Dataset):
             - Random - Returns a random slice each time.
         return_fname - Returns fname during the getitem
         multi_track - Enables multi-track ACCDOA for the labels
+        ignore_labels - Use this to avoid returning labels in the get item. Useful for evaluation mode when there are no labels.
+        labels_backend - Method to extract the labels. Currently baseline works best, as it is based on the official baseline code.
     """
     def __init__(self,
                  directory_root: str = './data/',
@@ -518,9 +516,7 @@ class DCASE_SELD_Dataset(Dataset):
                         time_array = get_adpit_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 100),
                                                                num_classes=self.num_classes)
                     else:
-                        time_array = get_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 10))
-                if self.labels_backend == 'custom':
-                    time_array = _read_time_array(fname=fname, directory_root=self.directory_root)
+                        time_array = get_labels_for_file(_desc_file=time_array, _nb_label_frames=math.ceil(duration * 10), num_classes=num_classes)
                 self._time_array_dict[fname] = time_array
             self._audios[fname] = audio
             self._fs[fname] = fs
@@ -957,6 +953,25 @@ def compare_backends_no_pad():
                                       labels_backend='sony')  # test sony and baseline
     dataset_baseline = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2022',
                                           list_dataset='dcase2022_devtrain_all.txt',
+                                          chunk_mode='full',  # test sony and baseline
+                                          chunk_size=30480,
+                                          trim_wavs=-1,
+                                          return_fname=True,
+                                          num_classes=13,
+                                          multi_track=False,  # test sony and baseline
+                                          labels_backend='baseline')  # test sony and baseline
+
+    dataset_sony = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3',
+                                      list_dataset='dcase2021t3_foa_devtest.txt',
+                                      chunk_mode='full',  # test sony and baseline
+                                      chunk_size=30480,
+                                      trim_wavs=-1,
+                                      return_fname=True,
+                                      num_classes=13,
+                                      multi_track=False,  # test sony and baseline
+                                      labels_backend='sony')  # test sony and baseline
+    dataset_baseline = DCASE_SELD_Dataset(directory_root='/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3',
+                                          list_dataset='dcase2021t3_foa_devtest.txt',
                                           chunk_mode='full',  # test sony and baseline
                                           chunk_size=30480,
                                           trim_wavs=-1,

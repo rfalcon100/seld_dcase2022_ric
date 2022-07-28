@@ -100,6 +100,40 @@ class SELDMetrics(object):
             F, LE, LR, SELD_scr = F.mean(), LE.mean(), LR.mean(), SELD_scr.mean()
         return ER, F, LE, LR, SELD_scr, classwise_results
 
+    def compute_seld_scores_macro_micro(self):
+        '''
+        Collect the final SELD scores using both macro and micro averaging
+
+        :return: returns both location-sensitive detection scores and class-sensitive localization scores
+        '''
+        ER = (self._S + self._D + self._I) / (self._Nref.sum() + eps)
+
+        ### Micro
+        # Location-sensitive detection performance
+        F_micro = self._TP.sum() / (eps + self._TP.sum() + self._FP_spatial.sum() + 0.5 * (self._FP.sum() + self._FN.sum()))
+
+        # Class-sensitive localization performance
+        LE_micro = self._total_DE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else 180
+        LR_micro = self._DE_TP.sum() / (eps + self._DE_TP.sum() + self._DE_FN.sum())
+
+        SELD_scr_micro = self.early_stopping_metric(ER, F_micro, LE_micro, LR_micro)
+        #classwise_results_micro = np.array([np.repeat(ER, self._nb_classes), F_micro, LE_micro, LR_micro, SELD_scr_micro])
+        classwise_results_micro = None
+
+        ### Macro
+        # Location-sensitive detection performance
+        F_macro = self._TP / (eps + self._TP + self._FP_spatial + 0.5 * (self._FP + self._FN))
+
+        # Class-sensitive localization performance
+        LE_macro = self._total_DE / (self._DE_TP + eps)
+        LE_macro[self._DE_TP==0] = 180.0
+        LR_macro = self._DE_TP / (eps + self._DE_TP + self._DE_FN)
+
+        SELD_scr_macro = self.early_stopping_metric(np.repeat(ER, self._nb_classes), F_macro, LE_macro, LR_macro)
+        classwise_results_macro = np.array([np.repeat(ER, self._nb_classes), F_macro, LE_macro, LR_macro, SELD_scr_macro])
+        F_macro, LE_macro, LR_macro, SELD_scr_macro = F_macro.mean(), LE_macro.mean(), LR_macro.mean(), SELD_scr_macro.mean()
+        return (ER, F_macro, LE_macro, LR_macro, SELD_scr_macro, classwise_results_macro), (ER, F_micro, LE_micro, LR_micro, SELD_scr_micro, classwise_results_micro)
+
     def update_seld_scores(self, pred, gt):
         '''
         Implements the spatial error averaging according to equation 5 in the paper [1] (see papers in the title of the code).

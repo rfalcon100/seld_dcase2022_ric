@@ -64,10 +64,11 @@ class ComputeSELDResults(object):
 
         return _cnt_dict
 
-    def get_SELD_Results(self, pred_files_path):
+    def get_SELD_Results(self, pred_files_path, num_classes=None):
         # collect predicted files info
         pred_files = os.listdir(pred_files_path)
-        eval = SELD_evaluation_metrics.SELDMetrics(nb_classes=self._feat_cls.get_nb_classes(),
+        num_classes = num_classes if num_classes is not None else self._feat_cls.get_nb_classes()
+        eval = SELD_evaluation_metrics.SELDMetrics(nb_classes=num_classes,
                                                    doa_threshold=self._doa_thresh, average=self._average)
         for pred_cnt, pred_file in enumerate(pred_files):
             # Load predicted output format file
@@ -78,13 +79,17 @@ class ComputeSELDResults(object):
                 #pred_dict = self._feat_cls.convert_output_format_cartesian_to_polar(pred_dict)
             pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
 
+            ## TODO: Using the GT just to get the upper bound of performance, this gives 100% correct score
+            ##eval.update_seld_scores(self._ref_labels[pred_file][0], self._ref_labels[pred_file][0])
+
             # Calculated scores
             eval.update_seld_scores(pred_labels, self._ref_labels[pred_file][0])
 
         # Overall SED and DOA scores
-        ER, F, LE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
+        #ER, F, LE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
+        metrics_macro, matrics_micro = eval.compute_seld_scores_macro_micro()
 
-        return ER, F, LE, LR, seld_scr, classwise_results
+        return metrics_macro, matrics_micro
 
     def get_consolidated_SELD_results(self, pred_files_path, score_type_list=['all', 'room']):
         '''

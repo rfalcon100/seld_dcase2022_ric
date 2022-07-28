@@ -79,9 +79,10 @@ def all_seld_eval(args, directory_root, fnames, pred_directory, result_path=None
     params = parameters.get_params()
     score_obj = cls_compute_seld_results.ComputeSELDResults(params, ref_files_folder=ref_desc_files)
 
-    seld_metric = score_obj.get_SELD_Results(pred_output_format_files)
+    #seld_metric = score_obj.get_SELD_Results(pred_output_format_files)
+    seld_metric_macro, seld_metric_micro = score_obj.get_SELD_Results(pred_output_format_files, num_classes=args.unique_classes)
 
-    return seld_metric
+    return seld_metric_macro, seld_metric_micro
 
 if __name__ == "__main__":
     pass

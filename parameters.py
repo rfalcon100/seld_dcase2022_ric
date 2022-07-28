@@ -183,7 +183,9 @@ def get_parameters():
             "job_id": f"{params['job_id']}_{params['task_id']}",
             "curriculum": params['curriculum_scheduler'],
             "num_workers": params['num_workers'],
-            "logging_dir": params["logging_dir"]
+            "logging_dir": params["logging_dir"],
+            "dataset": params["dataset_list_train"],
+            "dataset_backend": params["dataset_backend"]
         }
         wandb.init(project='seld_dcase2022_ric',
                    name=params['exp_name'],

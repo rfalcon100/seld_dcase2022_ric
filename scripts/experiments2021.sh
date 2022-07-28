@@ -32,61 +32,115 @@ echo $job_sub_id
 case $param in
     1)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train \
-    --wandb --exp_name "crnn10-2.55_base_mel_iv" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_base_mel_iv" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
     ;;
     2)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler fixed\
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__fixed" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler fixed\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__fixed" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
     ;;
     3)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler linear\
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__linear" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler linear\
+    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__linear" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
     ;;
     4)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler loss\
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__loss" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation \
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv+aug" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
     5)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler seld_metric\
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__seld_metric" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations \
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv+rot" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
     6)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation \
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
     7)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spatialmixup \
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+spm" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler fixed\
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv+aug+spm+rot+rotnoise+specaug+mix__fixed" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
     8)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations \
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+rot" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler linear\
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv+aug+spm+rot+rotnoise+specaug+mix__linear" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
     9)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations_noise \
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+rotnoise" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation \
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv+aug" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
     10)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spec_augmentation\
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+specaug" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
-    ;;
-    11)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --use_mixup \
-    --wandb --exp_name "crnn10-2.55_base_mel_iv+mix" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend baseline
+    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations \
+    --wandb --exp_name "crnn10-2.55_sony_mel_iv+rot" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend sony
     ;;
 esac
 
+
+#
+#case $param in
+#    1)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train \
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    2)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler fixed\
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__fixed" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    3)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler linear\
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__linear" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    4)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler loss\
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__loss" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    5)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler seld_metric\
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug+spm+rot+rotnoise+specaug+mix__seld_metric" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    6)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_augmentation \
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+aug" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    7)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spatialmixup \
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+spm" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    8)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations \
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+rot" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    9)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_rotations_noise \
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+rotnoise" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    10)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --model_spec_augmentation\
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+specaug" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#    11)
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform mel_iv --mode train --use_mixup \
+#    --wandb --exp_name "crnn10-2.55_base_mel_iv+mix" --seed $seed --job_id $job_id --task_id $job_sub_id  --dataset_backend baseline
+#    ;;
+#esac
 
 
 

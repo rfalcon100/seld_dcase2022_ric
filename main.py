@@ -346,8 +346,9 @@ def main():
     print('Initial loss = {:.6f}'.format(loss.item()))
 
     # Monitoring variables
-    train_loss, val_loss, seld_metrics = 0, 0, None
-    best_val_step, best_val_loss, best_metrics = 0, 0, [0,0,0,0,99]
+    train_loss, val_loss, seld_metrics_macro, seld_metrics_micro = 0, 0, None, None
+    best_val_step_macro, best_val_loss, best_metrics_macro = 0, 0, [0,0,0,0,99]
+    best_val_step_micro, best_val_loss_micro, best_metrics_micro = 0, 0, [0, 0, 0, 0, 99]
     start_time = time.time()
 
     if config.mode == 'train':
@@ -373,56 +374,87 @@ def main():
 
 
             if iter_idx % config.logging_interval == 0 and iter_idx > 0:
-                seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
-                                                              device=device, features_transform=features_transform, target_transform=target_transform,
-                                                              solver=solver, writer=writer,
-                                                              dcase_output_folder=config['directory_output_results'])
+                seld_metrics_macro, seld_metrics_micro, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
+                                                                                        device=device, features_transform=features_transform, target_transform=target_transform,
+                                                                                        solver=solver, writer=writer,
+                                                                                        dcase_output_folder=config['directory_output_results'])
                 curr_time = time.time() - start_time
+
+                # Check for best validation step
+                if seld_metrics_macro[4] < best_metrics_macro[4]:
+                    best_metrics_macro = seld_metrics_macro
+                    best_val_step_macro = iter_idx
+                    best_val_loss = val_loss
+                if seld_metrics_micro[4] < best_metrics_micro[4]:
+                    best_metrics_micro = seld_metrics_micro
+                    best_val_step_micro = iter_idx
+                if config.wandb:
+                    wandb.log({'best_val_step_macro': best_val_step_macro})
+                    wandb.summary['BestMACRO/SELD'] = best_metrics_macro[4]
+                    wandb.summary['BestMACRO/ER'] = best_metrics_macro[0]
+                    wandb.summary['BestMACRO/F'] = best_metrics_macro[1]
+                    wandb.summary['BestMACRO/LE'] = best_metrics_macro[2]
+                    wandb.summary['BestMACRO/LR'] = best_metrics_macro[3]
+                    wandb.summary['Losses/valid'] = best_val_loss
+                    wandb.summary['best_val_step_macro'] = best_val_step_macro
+
+                    wandb.log({'best_val_step_micro': best_val_step_micro})
+                    wandb.summary['BestMicro/SELD'] = best_metrics_micro[4]
+                    wandb.summary['BestMicro/ER'] = best_metrics_micro[0]
+                    wandb.summary['BestMicro/F'] = best_metrics_micro[1]
+                    wandb.summary['BestMicro/LE'] = best_metrics_micro[2]
+                    wandb.summary['BestMicro/LR'] = best_metrics_micro[3]
+                    wandb.summary['Losses/valid'] = best_val_loss
+                    wandb.summary['best_val_step_micro'] = best_val_step_micro
+
+                # Print metrics
                 print(f'Evaluating using overlap = 1 / {config["evaluation_overlap_fraction"]}')
                 print(
                     'iteration: {}/{}, time: {:0.2f}, '
                     'train_loss: {:0.4f}, val_loss: {:0.4f}, '
-                    'p_comp: {:0.3f}, best_val_step: {},  '
-                    'ER/F/LE/LR/SELD: {}, '.format(
-                        iter_idx, config.num_iters, curr_time,
+                    'p_comp: {:0.3f}, '.format(iter_idx, config.num_iters, curr_time,
                         train_loss, val_loss,
-                        solver.get_curriculum_params(), best_val_step,
-                        '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics[0:5]),))
+                        solver.get_curriculum_params()))
+                print('====== micro ======')
+                print(
+                    'best_val_step_micro: {},  \t\t'
+                    'micro: ER/F/LE/LR/SELD: {}, '.format(best_val_step_micro,
+                    '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics_micro[0:5]),))
+                print(
+                    'best_val_step_micro: {},  \t'
+                    'BEST-micro: ER/F/LE/LR/SELD: {}, '.format(best_val_step_micro,
+                    '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*best_metrics_micro[0:5]),))
+                print('====== MACRO ======')
+                print(
+                    'best_val_step_macro: {},  \t\t'
+                    'MACRO: ER/F/LE/LR/SELD: {}, '.format(best_val_step_macro,
+                    '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics_macro[0:5]),))
+                print(
+                    'best_val_step_micro: {},  \t'
+                    'BEST-MACRO: ER/F/LE/LR/SELD: {}, '.format(best_val_step_macro,
+                    '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*best_metrics_macro[0:5]),))
 
-                print('\n Classwise results on validation data')
+                print('\n MACRO Classwise results on validation data')
                 print('Class\tER\t\tF\t\tLE\t\tLR\t\tSELD_score')
-                seld_metrics_class_wise = seld_metrics[5]
+                seld_metrics_class_wise = seld_metrics_macro[5]
                 for cls_cnt in range(config['unique_classes']):
                     print('{}\t\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt,
-                                                                                   seld_metrics_class_wise[0][cls_cnt],
-                                                                                   seld_metrics_class_wise[1][cls_cnt],
-                                                                                   seld_metrics_class_wise[2][cls_cnt],
-                                                                                   seld_metrics_class_wise[3][cls_cnt],
-                                                                                   seld_metrics_class_wise[4][cls_cnt]))
+                                                                                     seld_metrics_class_wise[0][cls_cnt],
+                                                                                     seld_metrics_class_wise[1][cls_cnt],
+                                                                                     seld_metrics_class_wise[2][cls_cnt],
+                                                                                     seld_metrics_class_wise[3][cls_cnt],
+                                                                                     seld_metrics_class_wise[4][cls_cnt]))
                 print('================================================ \n')
 
-                # Check for best validation step
-                if seld_metrics[4] < best_metrics[4]:
-                    best_metrics = seld_metrics
-                    best_val_step = iter_idx
-                    best_val_loss = val_loss
-                if config.wandb:
-                    wandb.log({'best_val_step': best_val_step})
-                    wandb.summary['BestMetrics/SELD'] = best_metrics[4]
-                    wandb.summary['BestMetrics/ER'] = best_metrics[0]
-                    wandb.summary['BestMetrics/F'] = best_metrics[1]
-                    wandb.summary['BestMetrics/LE'] = best_metrics[2]
-                    wandb.summary['BestMetrics/LR'] = best_metrics[3]
-                    wandb.summary['Losses/valid'] = best_val_loss
-                    wandb.summary['best_val_step'] = best_val_step
+
 
             # Schedulers
             if iter_idx > 0:
                 solver.curriculum_scheduler_step(iter_idx,
                                                  val_loss if val_loss is not None else 0,
-                                                 seld_metrics[4] if seld_metrics is not None else 0)
+                                                 seld_metrics_macro[4] if seld_metrics_macro is not None else 0)
             if iter_idx % config.lr_scheduler_step == 0 and iter_idx > 0:
-                solver.lr_step(seld_metrics[4] if seld_metrics is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
+                solver.lr_step(seld_metrics_macro[4] if seld_metrics_macro is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
             iter_idx += 1
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
         wandb.finish()
@@ -481,26 +513,36 @@ def main():
         #solver = Solver(config=config, model_checkpoint=checkpoint)
         solver = Solver(config=config)  # TODO this is for loss upper bound only
 
-        seld_metrics, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
-                                                      device=device, features_transform=features_transform,
-                                                      target_transform=target_transform, solver=solver, writer=None,
-                                                      dcase_output_folder=config['directory_output_results'],
-                                                      detection_threshold=config['detection_threshold'])
+        seld_metrics_macro, seld_metrics_micro, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
+                                                           device=device, features_transform=features_transform,
+                                                           target_transform=target_transform, solver=solver, writer=None,
+                                                           dcase_output_folder=config['directory_output_results'],
+                                                           detection_threshold=config['detection_threshold'])
         curr_time = time.time() - start_time
+        # Print metrics
         print(f'Evaluating using overlap = 1 / {config["evaluation_overlap_fraction"]}')
         print(
             'iteration: {}/{}, time: {:0.2f}, '
             'train_loss: {:0.4f}, val_loss: {:0.4f}, '
-            'ER/F/LE/LR/SELD: {}, '.format(
-                0, config.num_iters, curr_time,
-                train_loss, val_loss,
-                '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics[0:5]), ))
+            'p_comp: {:0.3f}, '.format(-1, config.num_iters, curr_time,
+                                       train_loss, val_loss,
+                                       solver.get_curriculum_params()))
+        print('====== micro ======')
+        print(
+            'best_val_step_micro: {},  \t\t'
+            'micro: ER/F/LE/LR/SELD: {}, '.format(-1,
+                                                  '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics_micro[0:5]), ))
+        print('====== MACRO ======')
+        print(
+            'best_val_step_macro: {},  \t\t'
+            'MACRO: ER/F/LE/LR/SELD: {}, '.format(-1,
+                                                  '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics_macro[0:5]), ))
 
-        print('\n Classwise results on validation data')
+        print('\n MACRO Classwise results on validation data')
         print('Class\tER\t\tF\t\tLE\t\tLR\t\tSELD_score')
-        seld_metrics_class_wise = seld_metrics[5]
+        seld_metrics_class_wise = seld_metrics_macro[5]
         for cls_cnt in range(config['unique_classes']):
-            print('{}\t\t{:0.2}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.4f}'.format(cls_cnt,
+            print('{}\t\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt,
                                                                              seld_metrics_class_wise[0][cls_cnt],
                                                                              seld_metrics_class_wise[1][cls_cnt],
                                                                              seld_metrics_class_wise[2][cls_cnt],
@@ -657,6 +699,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
             full_labels = []
             if audio_chunks.shape[0] != labels_chunks.shape[0]:
                 a = 1
+                warnings.warn('WARNING: Possible error in padding.')
             if audio_chunks.shape[0] > labels_chunks.shape[0]:
                 audio_chunks = audio_chunks[0:labels_chunks.shape[0], ...]  # Mmm... lets drop the extra audio chunk if there are no labels for it
             if audio_chunks.shape[0] < labels_chunks.shape[0]:
@@ -679,7 +722,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 if config.oracle_mode:
                     full_labels.append(labels)  # TODO This is just to get the upper bound of the loss
                 if torch.isnan(loss):
-                    a = 1
+                    raise ValueError('ERROR: NaNs in loss')
 
             # Concatenate chunks across timesteps into final predictions
             if config.dataset_multi_track:
@@ -886,17 +929,23 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
 
         test_loss /= nb_test_batches
 
-    all_test_metric = all_seld_eval(config, directory_root=dataset.directory_root, fnames=dataset._fnames, pred_directory=dcase_output_folder)
+    all_test_metric_macro, all_test_metric_micro = all_seld_eval(config, directory_root=dataset.directory_root, fnames=dataset._fnames, pred_directory=dcase_output_folder)
 
     if writer is not None:
         writer.add_scalar('Losses/valid', test_loss, iter_idx)
-        writer.add_scalar('Metrics/ER', all_test_metric[0], iter_idx)
-        writer.add_scalar('Metrics/F', all_test_metric[1], iter_idx)
-        writer.add_scalar('Metrics/LE', all_test_metric[2], iter_idx)
-        writer.add_scalar('Metrics/LR', all_test_metric[3], iter_idx)
-        writer.add_scalar('Metrics/SELD', all_test_metric[4], iter_idx)
+        writer.add_scalar('MMacro/ER', all_test_metric_macro[0], iter_idx)
+        writer.add_scalar('MMacro/F', all_test_metric_macro[1], iter_idx)
+        writer.add_scalar('MMacro/LE', all_test_metric_macro[2], iter_idx)
+        writer.add_scalar('MMacro/LR', all_test_metric_macro[3], iter_idx)
+        writer.add_scalar('MMacro/SELD', all_test_metric_macro[4], iter_idx)
 
-    return all_test_metric, test_loss
+        writer.add_scalar('Mmicro/ER', all_test_metric_micro[0], iter_idx)
+        writer.add_scalar('Mmicro/F', all_test_metric_micro[1], iter_idx)
+        writer.add_scalar('Mmicro/LE', all_test_metric_micro[2], iter_idx)
+        writer.add_scalar('Mmicro/LR', all_test_metric_micro[3], iter_idx)
+        writer.add_scalar('Mmicro/SELD', all_test_metric_micro[4], iter_idx)
+
+    return all_test_metric_macro, all_test_metric_micro, test_loss
 
 def evaluation(config, dataset, solver, features_transform, target_transform: [nn.Sequential, None], dcase_output_folder, device, detection_threshold=0.4):
     # Adapted from the official baseline
