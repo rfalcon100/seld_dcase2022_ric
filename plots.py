@@ -583,17 +583,12 @@ def plot_labels_cross_sections(labels: Union[torch.Tensor, np.ndarray], n_classe
         # Azimuth  = projection over XY plane
         plane_xy = torch.tensor([[0, 0, 1.0]])  # XY plane is defined by the normal vector over z axis
         tmp_proj = labels[:, jj, :].transpose(1, 0) - torch.matmul(plane_xy, labels[:, jj, :]).transpose(1, 0) * plane_xy
-        tmp_r = torch.linalg.vector_norm(tmp_proj, ord=2, dim=1)
         labels_polar_proj = utils.vecs2dirs(tmp_proj, positive_azi=True, include_r=True, use_elevation=True)
         ax0.scatter(labels_polar_proj[:, 0], labels_polar_proj[:, 2], s=10, color=tmp_color)
 
         # Elevation = Projection over XZ plane
-        tmp_azis_for_ele = labels_polar[:, 0]
-        tmp_ele = labels_polar[:, 1]
-
         plane_xz = torch.tensor([[0, 1.0, 0]])  # XZ plane is defined by the normal vector over y axis
         tmp_proj = labels[:, jj, :].transpose(1, 0) - torch.matmul(plane_xz, labels[:, jj, :]).transpose(1, 0) * plane_xz
-        tmp_r = torch.linalg.vector_norm(tmp_proj, ord=2, dim=1)
         labels_polar_proj = utils.vecs2dirs(tmp_proj, positive_azi=True, include_r=True, use_elevation=True)
 
         ids_behind = np.logical_and(labels_polar_proj[:, 0] > np.pi / 2, labels_polar_proj[:, 0] < 3 * np.pi / 2)
@@ -608,14 +603,15 @@ def plot_labels_cross_sections(labels: Union[torch.Tensor, np.ndarray], n_classe
 
     # Formatting
     eps = 1e-1
-    this_title = 'Azimuth' + title if title is not None else 'Azimuth'
+    this_title = 'Azimuth'
     ax0.set_title(f'{this_title}')
     ax0.set_theta_offset(np.pi / 2)
     ax0.set_rmin(rlim[0])
     ax0.set_rmax(rlim[1] + eps)
     ax0.set_rticks(np.linspace(rlim[0], rlim[1], 6))
 
-    this_title = 'Elevation' + title if title is not None else 'Elevation'
+    rlim = [0, 1]
+    this_title = 'Elevation'
     ax1.set_title(f'{this_title}')
     ax1.set_theta_zero_location('W')
     ax1.set_theta_offset(np.pi)
@@ -625,7 +621,7 @@ def plot_labels_cross_sections(labels: Union[torch.Tensor, np.ndarray], n_classe
     ax1.set_theta_direction(-1)
     ax1.set_rticks(np.linspace(rlim[0], rlim[1], 6))
 
-    this_title = 'Vector Length' + title if title is not None else 'Vector Length'
+    this_title = 'Vector Length'
     ax2.set_ylabel(f'{this_title}')
     ax2.set_ylim([0 - eps, 1.0 + eps])
     ax2.grid()
@@ -797,7 +793,7 @@ def sh_rms_map_mollweide(F_nm, INDB=False, w_n=None, SH_type=None, azi_steps=5, 
     if return_values:
         return np.min(rms_d), np.max(rms_d)
 
-def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex', title='',
+def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex', title='', filename=None,
                               log_scale=True, bins=15, gridsize=15, kde_fill=True, kde_levels=8, cmin=0):
     """ This plots the bivariate distribution for azimuth and elevation, with marginal distributions
     for each.
@@ -835,7 +831,7 @@ def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex
         cbar_label = 'Count'
 
     # Plot starts here
-    fig = plt.figure()
+    #fig = plt.figure()  # Not neede because sns.JointGrid is a figure level method
     g = sns.JointGrid(data=df, x="azimuth", y="Elevation")
     g.plot_marginals(sns.histplot, bins=bins, element="step", color="#03012d")
     ax = g.fig.axes[0]
@@ -853,7 +849,7 @@ def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex
         hb = g.plot_joint(sns.kdeplot, cmap='magma', levels=kde_levels, cbar=True, fill=kde_fill, gridsize=gridsize)
         ax.axis([0, 2 * np.pi, -np.pi / 2, np.pi / 2])
     if type == 'hex' or type == 'hist':
-        cb = fig.colorbar(hb, ax=ax, ticks=ticks)
+        cb = g.fig.colorbar(hb, ax=ax, ticks=ticks)
         cb.set_label(cbar_label)
         g.fig.axes[-1] = cb  # doe snot work
     plt.subplots_adjust(left=0.15, right=0.8, top=0.9, bottom=0.1)
@@ -867,4 +863,7 @@ def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex
         g.fig.axes[-1].set_yticklabels([f'{t / cbar_max * 100:.1f} %' for t in cbar_ticks])
     plt.tight_layout()
     plt.suptitle(title)
+    if filename is not None:
+        plt.savefig(f'./figures/{filename}.pdf')
+        plt.savefig(f'./figures/{filename}.png')
     plt.show()
