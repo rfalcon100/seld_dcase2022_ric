@@ -26,6 +26,7 @@ from feature import Feature_StftPlusIV, Feature_MelPlusPhase, Feature_MelPlusIV
 import augmentation.spatial_mixup as spm
 import torch_audiomentations as t_aug
 from parameters import get_parameters
+import analysis
 import utils
 import plots
 
@@ -509,15 +510,19 @@ def main():
         checkpoints_path = ['six-2021-features-no-grad-spec-crnn10-2.55_base_stft_iv+spm+aug+rot-5836347_n-work:0_crnn10_batchnorm_61200__2022-07-11-211006']
         checkpoints_name = 'model_step_180000.pth'
 
-        #checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
-        #solver = Solver(config=config, model_checkpoint=checkpoint)
-        solver = Solver(config=config)  # TODO this is for loss upper bound only
+        checkpoints_path = ['compare-labels-2021-crnn10-2.55_sony_mel_iv+rot-6332347_6__n-work:0_crnn10_curr:linear_batchnorm_61200__2022-07-28-191723']
+        checkpoints_name = 'model_step_190000.pth'
+        checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
+        solver = Solver(config=config, model_checkpoint=checkpoint)
 
-        seld_metrics_macro, seld_metrics_micro, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
-                                                           device=device, features_transform=features_transform,
-                                                           target_transform=target_transform, solver=solver, writer=None,
-                                                           dcase_output_folder=config['directory_output_results'],
-                                                           detection_threshold=config['detection_threshold'])
+        if config.oracle_mode:
+            solver = Solver(config=config)  # TODO this is for loss upper bound only
+
+        seld_metrics_macro, seld_metrics_micro, val_loss, all_outputs = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
+                                                                       device=device, features_transform=features_transform,
+                                                                       target_transform=target_transform, solver=solver, writer=None,
+                                                                       dcase_output_folder=config['directory_output_results'],
+                                                                       detection_threshold=config['detection_threshold'])
         curr_time = time.time() - start_time
         # Print metrics
         print(f'Evaluating using overlap = 1 / {config["evaluation_overlap_fraction"]}')
@@ -549,6 +554,43 @@ def main():
                                                                              seld_metrics_class_wise[3][cls_cnt],
                                                                              seld_metrics_class_wise[4][cls_cnt]))
         print('================================================ \n')
+
+        print('Plotting results')
+        all_outputs_flat = torch.concat(all_outputs, dim=-1).detach().cpu()
+        all_outputs = [x[0, ...].detach().cpu() for x in all_outputs]
+        filename = 'results'
+        this_split = ''
+        if "2021" in config.dataset_list_train[0]:
+            set = "2021"
+        elif "2022" in config.dataset_list_train[0]:
+            set = "2022"
+        else:
+            raise ValueError('Not supported')
+
+        class_names, _ = analysis.get_classes_and_splits(set)
+
+
+        print('01 / 05 Plotting trajectories...')
+        plots.plot_labels_cross_sections(all_outputs[0], rlim=[0, 1], title=f'{filename}_{this_split}_Single wav', savefig=True)
+        analysis.plot_active_trajectories(all_outputs_flat, xlim=100000, title=f'{filename}_{this_split}_All wavs, trucated')  # all wavs, flatted
+
+        print('02 / 05 Plotting azimuth/elevation...')
+        analysis.plot_histograms_bivariate_azi_ele(all_outputs_flat, filename=f'{filename}_{this_split}_azi-ele', split=this_split)
+
+        print('03 / 05 Plotting speed and accelerarion...')
+        analysis.plot_speed_and_acceleration(all_outputs_flat, num_classes=config.unique_classes,
+                                    filename=f'{filename}_{this_split}_speed')
+
+        # Grouped by splits
+        print('04 / 05 Plotting active per class...')
+        analysis.plot_histograms_active_per_class([all_outputs], splits=[this_split], class_labels=class_names, detection_threshold=0.5,
+                                         filename=f'{filename}_activity')
+
+        # Grouped by splits
+        print('05 / 05 Plotting polyphony...')
+        analysis.plot_histograms_polyphony([all_outputs], splits=[this_split],
+                                  detection_threshold=0.5, format_use_log=False, chunk_size=1, filename=f'{filename}_polyphony')
+
 
 def train_iteration(config, data, iter_idx, start_time, start_time_step, device, features_transform: [nn.Sequential, None], rotation_noise: [nn.Sequential, None],
                     augmentation_transform_spatial: [nn.Sequential, None], rotation_transform: [nn.Sequential, None], augmentation_transform_spec: [nn.Sequential, None],
@@ -664,6 +706,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
     file_cnt = 0
     overlap = 1 / config['evaluation_overlap_fraction']  # defualt should be 1  TODO, onluy works for up to 1/32 , when the labels are 128 frames long.
 
+    outputs_for_plots = []
     print(f'Validation: {len(dataset)} fnames in dataset.')
     with torch.no_grad():
         for ctr, (audio, target, fname) in enumerate(dataset):
@@ -771,6 +814,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 norms = (norms < detection_threshold).repeat(1, output.shape[-3], 1, 1)
                 output[norms] = 0.0
             loss = torch.tensor([x.item() for x in full_loss]).mean()
+            outputs_for_plots.append(output)
 
             # Useful fo debug:
             #output.detach().cpu().numpy()[0, 0]
@@ -945,7 +989,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
         writer.add_scalar('Mmicro/LR', all_test_metric_micro[3], iter_idx)
         writer.add_scalar('Mmicro/SELD', all_test_metric_micro[4], iter_idx)
 
-    return all_test_metric_macro, all_test_metric_micro, test_loss
+    return all_test_metric_macro, all_test_metric_micro, test_loss, outputs_for_plots
 
 def evaluation(config, dataset, solver, features_transform, target_transform: [nn.Sequential, None], dcase_output_folder, device, detection_threshold=0.4):
     # Adapted from the official baseline

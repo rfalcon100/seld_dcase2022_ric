@@ -542,9 +542,9 @@ def plot_labels(labels: Union[torch.Tensor, np.ndarray], n_classes: Union[int, L
             elif ii == 2:
                 axs[ii].set_ylim([0 - eps, len(n_classes) + eps])
     plt.tight_layout()
-    plt.show()
     if savefig:
-        plt.savefig(f'labels_{title}.png')
+        plt.savefig(f'./figures/labels_{title}.png')
+    plt.show()
     return fig
 
 
@@ -626,9 +626,9 @@ def plot_labels_cross_sections(labels: Union[torch.Tensor, np.ndarray], n_classe
     ax2.set_ylim([0 - eps, 1.0 + eps])
     ax2.grid()
     plt.tight_layout()
-    plt.show()
     if savefig:
-        plt.savefig(f'labels_{title}.png')
+        plt.savefig(f'./figures/labels_{title}.png')
+    plt.show()
     return fig
 
 
