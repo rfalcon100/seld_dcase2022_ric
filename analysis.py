@@ -381,21 +381,86 @@ def get_data(config):
 
     return datasets
 
+def get_data_pretrained(config, detection_threshold=0.5):
+    # Here I load the npy of the predictions of a pretrained model
+    path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2021t3_foa_devtest_0080000_sgl'   # dcase2021, with DAN
+    path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2021t3_foa_devtest_0070000_sgl'   # dcase2021, b aseline I think
+
+    path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2022_devtest_all_0010000_sgl'  # dcase2022, baseline I think
+    path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2022_devtest_all_0050000_sgl'  # dcase2022, with DAN
+
+    predictions = []
+    #with open(path, 'r') as fid:
+    #    for f in fid:
+    #        predictions.append(np.load(f))
+
+    fake_audio = []
+    with os.scandir(path) as it:
+        for entry in it:
+            if entry.name.endswith(".npy") and entry.is_file():
+                tmp = np.load(entry.path)
+                predictions.append(torch.from_numpy(tmp).float())
+                fake_audio.append(0)
+    #dataset = torch.utils.data.TensorDataset(*predictions)
+    return [zip(fake_audio, predictions)], ['results']
+
+def evaluate_csvs(config, dataset):
+    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0080000_sgl'
+    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0070000_sgl'
+    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0010000_sgl'
+    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0050000_sgl'
+    root = '/m/triton/scratch/work/falconr1/sony/'
+
+    with open(os.path.join(config.dataset_root_valid, 'list_dataset',  config.dataset_list_valid), 'r') as f:
+        fnames = f.readlines()
+        for line in f:
+            fnames.append(line.rstrip())
+
+    seld_metrics_macro, seld_metrics_micro = all_seld_eval(config, directory_root=root, fnames=fnames,
+                                                                 pred_directory=dcase_output_folder)
+
+    print(f'Evaluating using overlap = 1 / {config["evaluation_overlap_fraction"]}')
+    print('====== micro ======')
+    print(
+        'best_val_step_micro: {},  \t\t'
+        'micro: ER/F/LE/LR/SELD: {}, '.format(-1,
+                                              '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics_micro[0:5]), ))
+    print('====== MACRO ======')
+    print(
+        'best_val_step_macro: {},  \t\t'
+        'MACRO: ER/F/LE/LR/SELD: {}, '.format(-1,
+                                              '{:0.4f}/{:0.4f}/{:0.4f}/{:0.4f}/\t/{:0.4f}'.format(*seld_metrics_macro[0:5]), ))
+
+    print('\n MACRO Classwise results on validation data')
+    print('Class\tER\t\tF\t\tLE\t\tLR\t\tSELD_score')
+    seld_metrics_class_wise = seld_metrics_macro[5]
+    for cls_cnt in range(config['unique_classes']):
+        print('{}\t\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}\t{:0.2f}'.format(cls_cnt,
+                                                                         seld_metrics_class_wise[0][cls_cnt],
+                                                                         seld_metrics_class_wise[1][cls_cnt],
+                                                                         seld_metrics_class_wise[2][cls_cnt],
+                                                                         seld_metrics_class_wise[3][cls_cnt],
+                                                                         seld_metrics_class_wise[4][cls_cnt]))
+    print('================================================ \n')
+
 def main():
     config = get_parameters()
 
-
-    datasets = get_data(config)
-    if "2021" in config.dataset_list_train[0]:
+    evaluate_csvs(config, None)
+    #datasets = get_data(config)  # This is to do analaysis on the actual datasets, with no models
+    if "2021" in config.dataset_list_valid:
         set = "2021"
         filename = 'dcase2021'
-    elif "2022" in config.dataset_list_train[0]:
+    elif "2022" in config.dataset_list_valid:
         set = "2022"
         filename = 'dcase2022'
     else:
         raise ValueError('Not supported')
-
     class_names, splits = get_classes_and_splits(set)
+
+    # Manual evaluation of predictions from pretrained model
+    filename += '_results'
+    datasets, splits = get_data_pretrained(config)
 
     list_targets, list_targets_flat = [], []
     for i, dset in enumerate(datasets):

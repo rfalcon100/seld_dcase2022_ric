@@ -472,6 +472,8 @@ class FeatureClass:
             elif len(_words) == 6:  # cartesian coordinates
                 _output_dict[_frame_ind].append(
                     [int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5])])
+            elif len(_words) == 4:  # polar coordinates. with no source id
+                _output_dict[_frame_ind].append([int(_words[1]), 0, float(_words[2]), float(_words[3])])
         _fid.close()
         return _output_dict
 
