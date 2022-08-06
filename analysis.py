@@ -115,7 +115,7 @@ def plot_histograms_bivariate_azi_ele(targets, split:str, threshold=0.5, filenam
     # plots.plot_distribution_azi_ele(active_targets_all_classes, type='hist', log_scale=False, title='Original', cmin=1, gridsize=100)
 
 def plot_histograms_active_per_class(list_targets: List[List], splits=['dev-train', 'dev-test', 'synth-set'], detection_threshold=0.5,
-                                     format_use_log=True, filename=None,
+                                     format_use_log=False, filename=None,
                                      class_labels=['Female speech',
                                                    'Male speech',
                                                    'Clapping',
@@ -160,11 +160,15 @@ def plot_histograms_active_per_class(list_targets: List[List], splits=['dev-trai
 
     # Prepare dataframe
     dfs = []
+    total_count_per_datasets = []
     for i, tmp in enumerate(counts_per_dataset):
         df = pd.DataFrame(list(tmp.items()))
         df.columns = ['class_id', 'count']
         df['class_name'] = class_labels
         df['split'] = [splits[i]] * len(class_labels)
+
+        total_count_per_datasets.append(sum(list(tmp.values())))
+        df['proportion'] = df['count'] / total_count_per_datasets[i]
         dfs.append(df)
     df = pd.concat(dfs)
 
@@ -181,7 +185,7 @@ def plot_histograms_active_per_class(list_targets: List[List], splits=['dev-trai
 
     # Horizontal, looks nice
     f, ax = plt.subplots(figsize=(18, 7))
-    g = sns.barplot(x="class_name", y="count", data=df, hue='split', palette='magma')
+    g = sns.barplot(x="class_name", y="proportion",  data=df, hue='split', palette='magma')
     # g = sns.catplot(x="class_name", kind='count', data=df, hue='split', palette='magma')
     # sns.despine(left=False, bottom=False)
     if format_use_log:
@@ -242,8 +246,8 @@ def plot_histograms_polyphony(list_of_targets: List[List], detection_threshold=0
 
     # Horizontal, looks nice
     f, ax = plt.subplots(figsize=(7, 7))
-    # g = sns.displot(df, x='count', discrete=True, stat="proportion", hue="split", palette='magma', ax=ax)  # This looks nice
-    g = sns.histplot(df, x='count', hue='split', stat='count', palette='magma', binrange=[0,8], discrete=True, multiple="dodge", shrink=.8)
+    # g = sns.displot(df, x='count', discrete=True, stat="proportion", common_norm=False, hue="split", palette='magma', ax=ax, multiple="dodge", shrink=.8)  # This looks nice
+    g = sns.histplot(df, x='count', hue='split', stat='proportion', common_norm=False, palette='magma', binrange=[0,8], discrete=True, multiple="dodge", shrink=.8)
     ###g = sns.barplot(x="polyphony", y="count", data=df, palette='magma')
     ###g = sns.catplot(x="count", kind='count', data=df, hue='split', palette='magma')
     # sns.despine(left=False, bottom=False)
@@ -296,7 +300,7 @@ def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13, f
     yolo_y[yolo_y > 1] = 1
 
     fig = plt.figure()
-    g = sns.histplot(yolo_y, log_scale=True)
+    g = sns.histplot(yolo_y, log_scale=True, stat='proportion')
     ax = plt.gca()
     # ax.set_xlim([0.0, 0.1])
     ax.set_title(f'speed of non zero, truncated > 1')
@@ -381,7 +385,7 @@ def get_data(config):
 
     return datasets
 
-def get_data_pretrained(config, detection_threshold=0.5):
+def get_data_pretrained(config, dcase_raw_output_folder, detection_threshold=0.5):
     # Here I load the npy of the predictions of a pretrained model
     path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2021t3_foa_devtest_0080000_sgl'   # dcase2021, with DAN
     path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2021t3_foa_devtest_0070000_sgl'   # dcase2021, b aseline I think
@@ -395,7 +399,7 @@ def get_data_pretrained(config, detection_threshold=0.5):
     #        predictions.append(np.load(f))
 
     fake_audio = []
-    with os.scandir(path) as it:
+    with os.scandir(dcase_raw_output_folder) as it:
         for entry in it:
             if entry.name.endswith(".npy") and entry.is_file():
                 tmp = np.load(entry.path)
@@ -404,11 +408,7 @@ def get_data_pretrained(config, detection_threshold=0.5):
     #dataset = torch.utils.data.TensorDataset(*predictions)
     return [zip(fake_audio, predictions)], ['results']
 
-def evaluate_csvs(config, dataset):
-    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0080000_sgl'
-    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0070000_sgl'
-    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0010000_sgl'
-    dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0050000_sgl'
+def evaluate_csvs(config, dcase_output_folder):
     root = '/m/triton/scratch/work/falconr1/sony/'
 
     with open(os.path.join(config.dataset_root_valid, 'list_dataset',  config.dataset_list_valid), 'r') as f:
@@ -445,9 +445,8 @@ def evaluate_csvs(config, dataset):
 
 def main():
     config = get_parameters()
+    use_pretrained_model = True
 
-    evaluate_csvs(config, None)
-    #datasets = get_data(config)  # This is to do analaysis on the actual datasets, with no models
     if "2021" in config.dataset_list_valid:
         set = "2021"
         filename = 'dcase2021'
@@ -456,11 +455,36 @@ def main():
         filename = 'dcase2022'
     else:
         raise ValueError('Not supported')
-    class_names, splits = get_classes_and_splits(set)
+
+    # Analysis of full datasets
+    if not use_pretrained_model:
+        datasets = get_data(config)  # This is to do analaysis on the actual datasets, with no models
+        class_names, splits = get_classes_and_splits(set)
 
     # Manual evaluation of predictions from pretrained model
-    filename += '_results'
-    datasets, splits = get_data_pretrained(config)
+    if use_pretrained_model:
+        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0080000_sgl'
+        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0070000_sgl'
+        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0010000_sgl'
+        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0050000_sgl'
+
+        # table 03, dcase2021, NDAs
+        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s1111_baseline-DAN-coord-threshold_spurstatic_m4_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_l/pred_dcase2021t3_foa_devtest_0110000_sgl'
+        #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s2222_baseline-DAN-coord-threshold_JIGSAW_16_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_lr:0./pred_dcase2021t3_foa_devtest_0070000_sgl'
+        #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s3333_baseline-DAN-coord-threshold-NDA-ALL_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_lr:0.1_/pred_dcase2021t3_foa_devtest_0070000_sgl'
+        filename += '_results_nda-static'
+
+        # and some  dcase2021, baselines
+        ####dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table01_s1234_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_par:__thrshl/pred_dcase2021t3_foa_devtest_0080000_sgl'
+        ####dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table01_s2222_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_par:__thrshl/pred_dcase2021t3_foa_devtest_0060000_sgl'
+        #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table01_s3333_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_par:__thrshl/pred_dcase2021t3_foa_devtest_0110000_sgl'
+        # filename += '_baseline'
+
+        print(f'Analysing model {dcase_output_folder}')
+        evaluate_csvs(config, dcase_output_folder)
+        dcase_raw_output_folder = dcase_output_folder.replace('pred', 'raw_output_array')
+        datasets, splits = get_data_pretrained(config, dcase_raw_output_folder)
+        class_names, _ = get_classes_and_splits(set)
 
     list_targets, list_targets_flat = [], []
     for i, dset in enumerate(datasets):

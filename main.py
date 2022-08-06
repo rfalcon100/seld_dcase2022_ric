@@ -513,10 +513,11 @@ def main():
         checkpoints_path = ['compare-labels-2021-crnn10-2.55_sony_mel_iv+rot-6332347_6__n-work:0_crnn10_curr:linear_batchnorm_61200__2022-07-28-191723']
         checkpoints_name = 'model_step_190000.pth'
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
-        solver = Solver(config=config, model_checkpoint=checkpoint)
 
         if config.oracle_mode:
             solver = Solver(config=config)  # TODO this is for loss upper bound only
+        else:
+            solver = Solver(config=config, model_checkpoint=checkpoint)
 
         seld_metrics_macro, seld_metrics_micro, val_loss, all_outputs = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
                                                                        device=device, features_transform=features_transform,
