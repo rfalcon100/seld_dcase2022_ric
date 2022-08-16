@@ -505,6 +505,14 @@ def plot_labels(labels: Union[torch.Tensor, np.ndarray], n_classes: Union[int, L
     else:
         y_labels = ['azimuth', 'elevation', 'r']
 
+        # Transform to spherical coordinates
+        labels_sph = np.zeros_like(labels)
+        for cc in range(labels.shape[-2]):  # Iterate classes
+            tmp = utils.vecs2dirs(labels[:, cc, :].squeeze().transpose(1, 0), include_r=True, use_elevation=True)
+            labels_sph[:, cc, ::] = tmp.transpose(1, 0)
+
+        labels = labels_sph
+
     fig, axs = plt.subplots(3, 1, sharex=True, figsize=(9, 12))
     plt.suptitle(title)
     if plot_cartesian:

@@ -25,6 +25,7 @@ from feature import Feature_StftPlusIV
 import augmentation.spatial_mixup as spm
 import torch_audiomentations as t_aug
 from parameters import get_parameters
+import negative_data_augmentation
 import utils
 import plots
 import seaborn as sns
@@ -263,7 +264,7 @@ def plot_histograms_polyphony(list_of_targets: List[List], detection_threshold=0
         plt.savefig(f'./figures/{filename}.png')
     plt.show()
 
-def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13, filename=None):
+def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13, filename=None, truncate_value=1.0):
     # Based on test_friday from GANtestbe
     # So this is a test to get the velocity using real data
     # I think it works ok, the plot and the numbers look like they match
@@ -288,22 +289,22 @@ def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13, f
     n_class = range(0, num_classes)  # This is we want all classes
     y_speed_truncated = y_speed[:, n_class, :]
     y_speed_truncated = y_speed_truncated[y_speed_truncated > 0.001]
-    y_speed_truncated[y_speed_truncated > 1] = 1
+    y_speed_truncated[y_speed_truncated > truncate_value] = truncate_value
     y_acceleration_truncated = y_acceleration_mag[:, n_class, :]
     y_acceleration_truncated = y_acceleration_truncated[y_acceleration_truncated > 0.001]
-    y_acceleration_truncated[y_acceleration_truncated > 1] = 1
+    y_acceleration_truncated[y_acceleration_truncated > truncate_value] = truncate_value
 
     # All classes together
-    yolo = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
-    yolo_y = yolo.detach().cpu().numpy().flatten()
-    yolo_y = yolo_y[yolo_y > 1e-5]
-    yolo_y[yolo_y > 1] = 1
+    y_speed_allclasses = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
+    y_speed_allclasses_y = y_speed_allclasses.detach().cpu().numpy().flatten()
+    y_speed_allclasses_y = y_speed_allclasses_y[y_speed_allclasses_y > 1e-5]
+    y_speed_allclasses_y[y_speed_allclasses_y > truncate_value] = truncate_value
 
     fig = plt.figure()
-    g = sns.histplot(yolo_y, log_scale=True, stat='proportion')
+    g = sns.histplot(y_speed_allclasses_y, log_scale=True, stat='proportion')
     ax = plt.gca()
     # ax.set_xlim([0.0, 0.1])
-    ax.set_title(f'speed of non zero, truncated > 1')
+    ax.set_title(f'speed of non zero, truncated > 1 --> {truncate_value}')
     if False:
         ###g.set_xscale("log")
         ####g.set_xticks([10 ** x for x in range(2)])
@@ -315,18 +316,18 @@ def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13, f
     plt.show()
 
     # Speed, by class
-    yolo = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
-    yolo_x = np.repeat(np.arange(num_classes), yolo.shape[-1])
-    yolo_y = yolo.detach().cpu().numpy().flatten()
-    ids = yolo_y > 0.0001
-    yolo_y[yolo_y > 1] = 1
+    tmp = y_speed.permute((1, 0, 2)).reshape(y_speed.shape[-2], -1)
+    tmp_x = np.repeat(np.arange(num_classes), tmp.shape[-1])
+    tmp_y = tmp.detach().cpu().numpy().flatten()
+    ids = tmp_y > 0.0001
+    tmp_y[tmp_y > truncate_value] = truncate_value
 
     fig = plt.figure(figsize=(7, 9))
-    g = sns.violinplot(yolo_y[ids], yolo_x[ids], orient='h', inner='point')
+    g = sns.violinplot(tmp_y[ids], tmp_x[ids], orient='h', inner='point')
     # g = sns.boxplot(yolo_y[ids], yolo_x[ids], orient='h' )
     ax = plt.gca()
     # ax.set_xlim([0.0, 0.1])
-    ax.set_title('speed')
+    ax.set_title(f'speed --> {truncate_value}')
     if False:
         g.set_xscale("log")
         g.set_xticks([10 ** x for x in range(2)])
@@ -349,26 +350,33 @@ def plot_speed_and_acceleration(targets, format_use_log=False, num_classes=13, f
         g.set_yscale("log")
         g.set_yticks([10 ** x for x in range(6)])
         # g.set_xticklabels(['0','a','b','c','d','e'])
-    ax.set_title('acceleration')
+    ax.set_title(f'acceleration --> {truncate_value}')
     if filename is not None:
         plt.savefig(f'./figures/{filename}_acceleration.pdf')
         plt.savefig(f'./figures/{filename}_acceleration.png')
     plt.show()
 
-def get_data(config):
+def detect_events(input: torch.Tensor, detection_threshold=0.5):
+    # Set all predictions where vector norm < detection threshold to zero
+    norms = torch.linalg.vector_norm(input, ord=2, dim=-3, keepdims=True)
+    norms = (norms < detection_threshold).repeat(input.shape[-3], 1, 1)
+    input[norms] = 0.0
+    return input
+
+def get_data(config, return_fnames=False):
     train_sets = range(len(config.dataset_list_train))
 
     datasets = []
     for ii in train_sets:
         dset = DCASE_SELD_Dataset(directory_root=config.dataset_root[ii],
-                                       list_dataset=config.dataset_list_train[ii],
-                                       chunk_size=config.dataset_chunk_size,
-                                       chunk_mode='full',
-                                       trim_wavs=config.dataset_trim_wavs,
-                                       multi_track=config.dataset_multi_track,
-                                       num_classes=config.unique_classes,
-                                       labels_backend=config.dataset_backend,
-                                       return_fname=False)
+                                  list_dataset=config.dataset_list_train[ii],
+                                  chunk_size=config.dataset_chunk_size,
+                                  chunk_mode='full',
+                                  trim_wavs=config.dataset_trim_wavs,
+                                  multi_track=config.dataset_multi_track,
+                                  num_classes=config.unique_classes,
+                                  labels_backend=config.dataset_backend,
+                                  return_fname=return_fnames)
         datasets.append(dset)
 
     dataset_valid = DCASE_SELD_Dataset(directory_root=config.dataset_root_valid,
@@ -379,13 +387,13 @@ def get_data(config):
                                        multi_track=config.dataset_multi_track,
                                        num_classes=config.unique_classes,
                                        labels_backend=config.dataset_backend,
-                                       return_fname=False)
+                                       return_fname=return_fnames)
 
     datasets.append(dataset_valid)
 
     return datasets
 
-def get_data_pretrained(config, dcase_raw_output_folder, detection_threshold=0.5):
+def get_data_pretrained(config, dcase_raw_output_folder, detection_threshold=0.5, return_fnames=False):
     # Here I load the npy of the predictions of a pretrained model
     path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2021t3_foa_devtest_0080000_sgl'   # dcase2021, with DAN
     path = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/raw_output_array_dcase2021t3_foa_devtest_0070000_sgl'   # dcase2021, b aseline I think
@@ -399,14 +407,19 @@ def get_data_pretrained(config, dcase_raw_output_folder, detection_threshold=0.5
     #        predictions.append(np.load(f))
 
     fake_audio = []
+    fnames = []
     with os.scandir(dcase_raw_output_folder) as it:
         for entry in it:
             if entry.name.endswith(".npy") and entry.is_file():
                 tmp = np.load(entry.path)
                 predictions.append(torch.from_numpy(tmp).float())
                 fake_audio.append(0)
+                fnames.append(entry.name)
     #dataset = torch.utils.data.TensorDataset(*predictions)
-    return [zip(fake_audio, predictions)], ['results']
+    if not return_fnames:
+        return [zip(fake_audio, predictions)], ['results']
+    else:
+        return [zip(fake_audio, predictions)], ['results'], fnames
 
 def evaluate_csvs(config, dcase_output_folder):
     root = '/m/triton/scratch/work/falconr1/sony/'
@@ -443,9 +456,94 @@ def evaluate_csvs(config, dcase_output_folder):
                                                                          seld_metrics_class_wise[4][cls_cnt]))
     print('================================================ \n')
 
+def error_per_file():
+    config = get_parameters()
+    use_low_pass = False
+    use_pretrained_model = True
+    use_detection_threshold = 0.5
+
+    if "2021" in config.dataset_list_valid:
+        set = "2021"
+        filename = 'dcase2021'
+    elif "2022" in config.dataset_list_valid:
+        set = "2022"
+        filename = 'dcase2022'
+    else:
+        raise ValueError('Not supported')
+
+    # Reference dataset
+    datasets = get_data(config, return_fnames=False)  # This is to do analaysis on the actual datasets, with no models
+    class_names, splits = get_classes_and_splits(set)
+
+    # model
+    # table 03, dcase2022, baselines
+    dcase_output_folder = '/m/triton//work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_dcase2022_s1234_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_pa/pred_dcase2022_devtest_all_0040000_sgl'
+    filename += '_baseline'
+    dcase_output_folder = '/m/triton//scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_dcase2022_s1234_baseline-DAN-coord-threshold-NDA-ALL_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001/pred_dcase2022_devtest_all_0110000_sgl'
+    filename += '_ndaall'
+
+    print(f'Analysing model {dcase_output_folder}')
+    dcase_raw_output_folder = dcase_output_folder.replace('pred', 'raw_output_array')
+    datasets_model, splits_model, fnames_model = get_data_pretrained(config, dcase_raw_output_folder, return_fnames=True)
+    datasets_model_as_list = [(x[0], x[1]) for x in datasets_model[0]]
+
+    # Find the ids of the names in the model
+    fnames_ref = datasets[-1].get_fnames()
+    fnames_ref = [fname.split('/')[-1] for fname in fnames_ref]
+    fnames_ref = [fname.replace('.wav', '.npy') for fname in fnames_ref]
+    ids_fname = {}
+    for fname in fnames_model:
+        ids_fname[fname] = fnames_ref.index(fname)
+
+    errors = {}
+    error_signal = None
+    curr_min_error = 1e10
+    for ii, fname in enumerate(ids_fname):
+        id = ids_fname[fname]
+        _, label_ref = datasets[-1][id]
+        _, label_model = datasets_model_as_list[ii]
+
+        # Pad if needed
+        if label_ref.shape[-1] > label_model.shape[-1]:
+            padder = nn.ConstantPad2d(padding=(0, label_ref.shape[-1] - label_model.shape[-1]), value=0)
+            label_model = label_model(label_model)
+
+        # Pad if needed
+        if label_ref.shape[-1] < label_model.shape[-1]:
+            padder = nn.ConstantPad2d(padding=(0, label_model.shape[-1] - label_ref.shape[-1]), value=0)
+            label_ref = padder(label_ref)
+
+        tmp = (label_ref - label_model) ** 2
+        errors[fname] = tmp.mean()
+        if tmp.mean() < curr_min_error:
+            error_signal = torch.clone(tmp)
+
+    # Find meaningful files
+    min_value = min(errors.values())
+    min_error = {key:value for key, value in errors.items() if value == min_value}
+    max_value = max(errors.values())
+    max_error = {key: value for key, value in errors.items() if value == max_value}
+
+    # Now look at it
+    plots.plot_waveform(error_signal.mean(dim=-3).mean(dim=-2)[None, ...], sample_rate=100, title='Error')
+
+    min_error_fname = [x for x in min_error.keys()][0]
+    _, label_ref = datasets[-1][ids_fname[min_error_fname]]
+    plots.plot_labels(label_ref, plot_cartesian=False, title='Reference')
+
+    coso = fnames_model.index(min_error_fname)
+    _, label_model = datasets_model_as_list[coso]
+    if use_low_pass:
+        label_model = negative_data_augmentation.low_pass(label_model)
+    if use_detection_threshold is not None:
+        label_model = detect_events(label_model, detection_threshold=use_detection_threshold)
+    plots.plot_labels(label_model, plot_cartesian=False, title='Model')
+
 def main():
     config = get_parameters()
-    use_pretrained_model = True
+    use_low_pass = True
+    use_pretrained_model = False
+    use_detection_threshold = 0.5
 
     if "2021" in config.dataset_list_valid:
         set = "2021"
@@ -465,20 +563,31 @@ def main():
     if use_pretrained_model:
         dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0080000_sgl'
         dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2021t3_foa_devtest_0070000_sgl'
-        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0010000_sgl'
-        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0050000_sgl'
+        ##dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0010000_sgl'
+        ##dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tmpeval/pred_dcase2022_devtest_all_0050000_sgl'
+        #filename += '_results_nda-jigsaw'
 
         # table 03, dcase2021, NDAs
-        dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s1111_baseline-DAN-coord-threshold_spurstatic_m4_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_l/pred_dcase2021t3_foa_devtest_0110000_sgl'
+        #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s1111_baseline-DAN-coord-threshold_spurstatic_m4_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_l/pred_dcase2021t3_foa_devtest_0110000_sgl'
+        #filename += '_results_nda-static'
         #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s2222_baseline-DAN-coord-threshold_JIGSAW_16_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_lr:0./pred_dcase2021t3_foa_devtest_0070000_sgl'
+        # filename += '_results_nda-jigsaw'
         #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_s3333_baseline-DAN-coord-threshold-NDA-ALL_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001_D_lr:0.1_/pred_dcase2021t3_foa_devtest_0070000_sgl'
-        filename += '_results_nda-static'
+        #filename += '_results_nda-all'
 
         # and some  dcase2021, baselines
         ####dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table01_s1234_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_par:__thrshl/pred_dcase2021t3_foa_devtest_0080000_sgl'
         ####dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table01_s2222_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_par:__thrshl/pred_dcase2021t3_foa_devtest_0060000_sgl'
         #dcase_output_folder = '/m/triton/scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table01_s3333_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_par:__thrshl/pred_dcase2021t3_foa_devtest_0110000_sgl'
-        # filename += '_baseline'
+        #filename += '_baseline'
+
+        # table 03, dcase2022, NDAS
+        dcase_output_folder = '/m/triton//scratch/work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_dcase2022_s1234_baseline-DAN-coord-threshold-NDA-ALL_w-rec:100.0_w-adv:0.3_ls_ls_G_lr:0.001/pred_dcase2022_devtest_all_0110000_sgl'
+        filename += '_results_nda-all'
+
+        # table 03, dcase2022, baselines
+        #dcase_output_folder = '/m/triton//work/falconr1/sony/data_dcase2021_task3/model_monitor/tempeval/table03_dcase2022_s1234_baseline_w-rec:100.0_w-adv:0.0_ls_ls_G_lr:0.001_D_lr:0.1_nda_lam:1.0_nda_pa/pred_dcase2022_devtest_all_0040000_sgl'
+        #filename += '_baseline'
 
         print(f'Analysing model {dcase_output_folder}')
         evaluate_csvs(config, dcase_output_folder)
@@ -491,27 +600,38 @@ def main():
         targets = []
         print(f'Reading files split = {splits[i]} ..... ')
         for _, tmp in tqdm(dset):
+            if use_low_pass:
+                tmp = negative_data_augmentation.low_pass(tmp)
+            if use_detection_threshold is not None:
+                tmp = detect_events(tmp, detection_threshold=use_detection_threshold)
             targets.append(tmp)
         targets_flat = torch.concat(targets, dim=-1)  # concat along frames, in case files have different length
         targets_flat = targets_flat[None, ...]
         list_targets.append(targets)
         list_targets_flat.append(targets_flat)
 
+
     dataset_train, dataset_valid, dataset_synth = None, None, None  # Free memory
     id_dataset = 1
 
     #plot_histograms_bivariate_azi_ele(list_targets_flat[id_dataset])
     ctr = 0
+    wav_id = 0
     for this_targets_flat, this_split in zip(list_targets_flat, splits):
+        if (ctr == 0 or ctr == 1) and not use_pretrained_model:  # TODO this is just to plot the test set of the real data
+            ctr += 1
+            continue
         print('01 / 05 Plotting trajectories...')
-        plots.plot_labels_cross_sections(list_targets[ctr][0], rlim=[0, 1], title=f'{filename}_{this_split}_Single wav', savefig=True)
+        plot_range = [800, 1500]
+        plots.plot_labels(list_targets[ctr][wav_id][:, :, plot_range[0]:plot_range[1]], title=f'{filename}_{this_split}_Single wav_basic', plot_cartesian=False, savefig=True)
+        plots.plot_labels_cross_sections(list_targets[ctr][wav_id][:, :, plot_range[0]:plot_range[1]], rlim=[0, 1], title=f'{filename}_{this_split}_Single wav', savefig=True)
         plot_active_trajectories(this_targets_flat, xlim=100000, title=f'{filename}_{this_split}_All wavs, trucated')  # all wavs, flatted
 
         print('02 / 05 Plotting azimuth/elevation...')
         plot_histograms_bivariate_azi_ele(this_targets_flat, filename=f'{filename}_{this_split}_azi-ele', split=this_split)
 
         print('03 / 05 Plotting speed and accelerarion...')
-        plot_speed_and_acceleration(this_targets_flat, num_classes=config.unique_classes, filename=f'{filename}_{this_split}_speed')
+        plot_speed_and_acceleration(this_targets_flat, num_classes=config.unique_classes, filename=f'{filename}_{this_split}_speed', truncate_value=10)
         ctr += 1
 
     # Grouped by splits
