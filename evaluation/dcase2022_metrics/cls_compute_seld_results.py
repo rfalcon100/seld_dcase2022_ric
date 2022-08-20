@@ -1,4 +1,9 @@
 import os
+import random
+import numpy as np
+from numpy import median, percentile
+from typing import List
+
 if __name__ == "__main__":
     import SELD_evaluation_metrics
     import cls_feature_class
@@ -7,7 +12,6 @@ else:
     import evaluation.dcase2022_metrics.SELD_evaluation_metrics as SELD_evaluation_metrics
     import evaluation.dcase2022_metrics.cls_feature_class as cls_feature_class
     import evaluation.dcase2022_metrics.parameters as parameters
-import numpy as np
 
 
 class ComputeSELDResults(object):
@@ -90,6 +94,85 @@ class ComputeSELDResults(object):
         metrics_macro, matrics_micro = eval.compute_seld_scores_macro_micro()
 
         return metrics_macro, matrics_micro
+
+    def get_SELD_Results_Bootstrap(self, pred_files_path: List[str], num_classes=None, n_trials=1, alpha=5.0):
+        # collect predicted files info
+        # Here we use stratified bootstrat across checkpoints (from the same or multiple runs), and wav files
+        # First, we put all the predicted csvs available into a population
+        # Then, we do compute the media and 95% CI of the metrics
+        from tqdm import tqdm
+
+        assert isinstance(pred_files_path, list), 'pred files should be alist of checkpoints'
+
+        num_classes = num_classes if num_classes is not None else self._feat_cls.get_nb_classes()
+        lower_p = alpha / 2.0
+        upper_p = (100 - alpha) + (alpha / 2.0)
+
+        csvs_population = []
+        all_metrics_micro = []
+        all_metrics_macro = []
+        for this_pred_path in pred_files_path:
+            pred_files = os.listdir(this_pred_path)
+            tmp = [this_pred_path] * len(pred_files)
+            tmp = [os.path.join(x, y) for x,y in zip(tmp, pred_files)]
+            csvs_population.extend(tmp)
+
+        for _ in tqdm(range(n_trials)):
+            pred_files = random.choices(csvs_population, k=len(csvs_population))
+
+            eval = SELD_evaluation_metrics.SELDMetrics(nb_classes=num_classes,
+                                                       doa_threshold=self._doa_thresh, average=self._average)
+            for pred_cnt, pred_file in enumerate(pred_files):
+                # Load predicted output format file
+                pred_dict = self._feat_cls.load_output_format_file(pred_file)
+                if self._use_polar_format:
+                    # TODO, UPDATE 12.06.2022, I am skipping this as my files are in spherical coordinates already
+                    pred_dict = pred_dict
+                    #pred_dict = self._feat_cls.convert_output_format_cartesian_to_polar(pred_dict)
+                pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[os.path.basename(pred_file)][1])
+
+                ## TODO: Using the GT just to get the upper bound of performance, this gives 100% correct score
+                ##eval.update_seld_scores(self._ref_labels[pred_file][0], self._ref_labels[pred_file][0])
+
+                # Calculated scores
+                eval.update_seld_scores(pred_labels, self._ref_labels[os.path.basename(pred_file)][0])
+
+            # Overall SED and DOA scores
+            #ER, F, LE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
+            # (ER, F_macro, LE_macro, LR_macro, SELD_scr_macro, classwise_results_macro)
+            metrics_macro, matrics_micro = eval.compute_seld_scores_macro_micro()
+
+            all_metrics_macro.append(metrics_macro)
+            all_metrics_micro.append(matrics_micro)
+
+        # Compute median and CIs, MACRO
+        all_medians_macro, all_cilow_macro, all_cihigh_macro = [],[],[]
+        for i in range(5):
+            tmp_metric = []
+            for jj in all_metrics_macro:
+                tmp_metric.append(jj[i])
+            med = median(tmp_metric)
+            ci_low = max(0.0, percentile(tmp_metric, lower_p))
+            ci_high = percentile(tmp_metric, upper_p)
+            print(f'Metric {i}, median: {med}  CI: ({ci_low}, {ci_high})')
+            all_medians_macro.append(med)
+            all_cilow_macro.append(ci_low)
+            all_cihigh_macro.append(ci_high)
+
+        all_medians_micro, all_cilow_micro, all_cihigh_micro = [],[],[]
+        for i in range(5):
+            tmp_metric = []
+            for jj in all_metrics_micro:
+                tmp_metric.append(jj[i])
+            med = median(tmp_metric)
+            ci_low = max(0.0, percentile(tmp_metric, lower_p))
+            ci_high = percentile(tmp_metric, upper_p)
+            print(f'Metric {i}, median: {med}  CI: ({ci_low}, {ci_high})')
+            all_medians_micro.append(med)
+            all_cilow_micro.append(ci_low)
+            all_cihigh_micro.append(ci_high)
+
+        return (all_medians_macro, all_cilow_macro, all_cihigh_macro), (all_medians_micro, all_cilow_micro, all_cihigh_micro)
 
     def get_consolidated_SELD_results(self, pred_files_path, score_type_list=['all', 'room']):
         '''
