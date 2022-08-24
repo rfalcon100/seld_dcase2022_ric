@@ -111,6 +111,8 @@ class ComputeSELDResults(object):
         csvs_population = []
         all_metrics_micro = []
         all_metrics_macro = []
+
+        # Create psuedo-population with all the wavs for each run
         for this_pred_path in pred_files_path:
             pred_files = os.listdir(this_pred_path)
             tmp = [this_pred_path] * len(pred_files)
@@ -154,7 +156,7 @@ class ComputeSELDResults(object):
             med = median(tmp_metric)
             ci_low = max(0.0, percentile(tmp_metric, lower_p))
             ci_high = percentile(tmp_metric, upper_p)
-            print(f'Metric {i}, median: {med}  CI: ({ci_low}, {ci_high})')
+            print(f'MACRO Metric {i}, median: {med}  CI: ({ci_low}, {ci_high})')
             all_medians_macro.append(med)
             all_cilow_macro.append(ci_low)
             all_cihigh_macro.append(ci_high)
@@ -167,7 +169,7 @@ class ComputeSELDResults(object):
             med = median(tmp_metric)
             ci_low = max(0.0, percentile(tmp_metric, lower_p))
             ci_high = percentile(tmp_metric, upper_p)
-            print(f'Metric {i}, median: {med}  CI: ({ci_low}, {ci_high})')
+            print(f'micro Metric {i}, median: {med}  CI: ({ci_low}, {ci_high})')
             all_medians_micro.append(med)
             all_cilow_micro.append(ci_low)
             all_cihigh_micro.append(ci_high)
