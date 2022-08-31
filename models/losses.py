@@ -4,6 +4,68 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+
+##
+# Useful repos:
+# https://github.com/salu133445/dan/blob/master/src/dan/losses.py
+# https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/pix2pix_model.py
+#
+##
+
+
+def discriminator_loss(prediction: torch.Tensor, target_is_real: bool, loss_type: str = 'minmax'):
+    target_real = 1.0
+    target_fake = 0.0
+
+    if target_is_real:
+        target_tensor = torch.tensor(target_real)
+    else:
+        target_tensor = torch.tensor(target_fake)
+    target_tensor = target_tensor.expand_as(prediction).to(prediction.get_device())
+
+    if loss_type == 'minmax':
+        fn = nn.BCEWithLogitsLoss().to(prediction.get_device())
+        loss = fn(prediction, target_tensor)
+    elif loss_type == 'non-sat':
+        fn = nn.BCEWithLogitsLoss().to(prediction.get_device())
+        loss = fn(prediction, target_tensor)
+    elif loss_type == 'ls':
+        fn = nn.MSELoss().to(prediction.get_device())
+        loss = fn(prediction, target_tensor)
+    elif loss_type == 'hinge':
+        if target_is_real:
+            loss = -torch.mean(torch.min(torch.zeros_like(prediction), prediction - 1))
+        else:
+            loss = -torch.mean(torch.min(torch.zeros_like(prediction), -prediction - 1))
+    elif loss_type == 'wass':
+        if target_is_real:
+            loss = -torch.mean(prediction)
+        else:
+            loss = torch.mean(prediction)
+
+    return loss
+
+
+def generator_loss(prediction, loss_type='minmax'):
+    eps = 1e-8
+
+    if loss_type == 'minmax':
+        fn = nn.BCEWithLogitsLoss().to(prediction.get_device())
+        target_real = 1.0
+        target_tensor = torch.tensor(target_real)
+        target_tensor = target_tensor.expand_as(prediction).to(prediction.get_device())
+        loss = fn(prediction, target_tensor)
+    elif loss_type == 'non-sat':
+        loss = -torch.mean(torch.log(torch.sigmoid(prediction + eps)))
+    elif loss_type == 'ls':
+        loss = torch.mean(torch.pow(prediction - 1, 2))
+    elif loss_type == 'hinge':
+        loss = -torch.mean(prediction)
+    elif loss_type == 'wass':
+        loss = -torch.mean(prediction)
+
+    return loss
+
 class MSELoss_ADPIT(object):
     """ From the DCASE 2022 task 3 baseline"""
     def __init__(self):

@@ -70,6 +70,7 @@ def get_parameters():
     #p = configargparse.ArgParser(default_config_files=['./configs/*.yaml'])
     p.add('-c', '--my-config', required=True, is_config_file=True, help='config file path', default='./configs/run_debug.yaml')
 
+    # Experiment
     p.add_argument('--exp_name', help="Optional experiment name.")
     p.add_argument('--exp_group', help="Optional experiment group, useful to search for runs in the logs. This is added to the exp name.")
     p.add_argument('--seed_mode', help="Mode for random seeds.", choices=['balanced', 'random'])
@@ -82,18 +83,40 @@ def get_parameters():
     p.add_argument('--logging_dir', help='Directory to save logs and results.')
     p.add_argument('--wandb', action='store_true', help='Enable wandb to log runs.')
 
-    # Run arguments
+    # Training arguments
+    p.add_argument('--solver', type=str, choices=['DAN', 'vanilla'],  help='Solver to use.')
     p.add_argument('--num_iters', type=int, help='Num of trianing iterations.')
     p.add_argument('--batch_size', type=int, help='Batch size.')
     p.add_argument('--num_workers', type=int, help='Num workers for dataloader.')
     p.add_argument('--print_every', type=int, help='Print current status every x training iterations.')
     p.add_argument('--logging_interval', type=int, help='Validation interval')
-    p.add_argument('--lr', type=float, help='Learning rate for optimizer.')
     p.add_argument('--lr_scheduler_step', type=int, help='Step for the lr scheduler')
+    p.add_argument('--lr', type=float, help='Learning rate for optimizer.')
     p.add_argument('--lr_min', type=float, help='Minimum learning rate so that the Scheduler does not go too low.')
     p.add_argument('--lr_decay_rate', type=float, help='Decay rate for the lr scheduler.')
     p.add_argument('--lr_patience_times', type=float, help='Validaiton steps patienece for the lr scheduler.')
+    p.add_argument('--w_rec', type=float, default=0, help='Weight for the reconstruction loss of the generator.')
+    p.add_argument('--w_adv', type=float, default=1, help='Weight for the adversarial loss of the generator.')
+
+    # Curriculum
     p.add_argument('--curriculum_scheduler', type=str, help='Select scheduler type for the curriculum learning', choices=['linear', 'fixed', 'loss', 'seld_metric'])
+    p.add_argument('--curriculum_D_threshold_min', type=float, default=0.0, help='Update for the discrminator threshold when using curriculum learning. This adds to the D_threshold.')
+    p.add_argument('--curriculum_D_threshold_max', type=float, default=0.0, help='Update for the discrminator threshold when using curriculum learning. This adds to the D_threshold.')
+    p.add_argument('--curriculum_w_adv', type=float, default=0.0, help='Update for w-adv when using curriculim learning. This adds to the original w_adv value')
+
+    # Training discrminator arguments
+    p.add_argument('--D_lr', type=float, default=1e-5, help='Learning rate')
+    p.add_argument('--D_lr_min', type=float, default=1e-8, help='Discriminator, minimum learning rate')
+    p.add_argument('--D_lr_decay_rate', type=float, default=0.9, help='Discriminator, learning rate decay for the scheduler')
+    p.add_argument('--D_lr_patience_times', type=float, default=3, help='Discriminator, learning rate patience for the scheduler')
+    p.add_argument('--D_lr_step-size', type=float, default=1000)
+    p.add_argument('--D_lr_weight_decay', type=float, default=0.001)
+    p.add_argument('--D_lr_discriminator_scheduler', type=str, choices=["lrstep", "warmup", "cosine", "cosine-restart"])
+
+    p.add_argument('--G_crit', type=str, default='minmax', choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge'])
+    p.add_argument('--D_crit', type=str, default='minmax', choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge'])
+    p.add_argument('--disc_algorithm', type=str, default='vanilla', choices=['vanilla'])
+    p.add_argument('--D_batches', type=int, default='0', help='Number of independent batches to train the discrminator. Set to 0 to use the same batch.')
 
     # Model arguments
     p.add_argument('--model', help='Model to use.')
@@ -110,8 +133,29 @@ def get_parameters():
     p.add_argument('--thresh_unify', type=float, help='Threshold for unify detections during evaluation')
     p.add_argument('--use_mixup', action='store_true')
     p.add_argument('--mixup_alpha', type=float)
-    p.add_argument('--input_shape', nargs='+', type=int, help='Input shape for the model. ')   #'input_shape': [4, 144000], when using sample cnn
+    p.add_argument('--input_shape', nargs='+', type=int, help='Input shape for the model.')   #'input_shape': [4, 144000], when using sample cnn
     p.add_argument('--output_shape', nargs='+', type=int, help='Output shape of the model, so the predictions.')
+
+    # Discriminator arguments
+    p.add_argument('--disc', choices=['DiscriminatorModularThreshold'], help='Model to use.')
+    p.add_argument('--disc_input_shape', nargs='+', type=int, default=[3, 257, 256], help='Input shape for the discriminator. Mostly for the torchsummary')
+    p.add_argument('--disc_feature_maps', type=int, default=64, help='Feature maps for the first layer of the discrminator.')
+    p.add_argument('--disc_final', choices=['none', 'relu'],  help='Activation function for the last layer.')
+    p.add_argument('--disc_kernels', nargs='+', type=list_of_2d_tuples, help='Kernel sizes, for each block.')
+    p.add_argument('--disc_strides', nargs='+', type=list_of_2d_tuples, help='Kernel strides, for each block.')
+    p.add_argument('--disc_padding', nargs='+', type=int, help='Kernel padding, for each block.')
+    p.add_argument('--disc_normalization', choices=['instance', 'layer', 'batch'], help='Model to use.')
+    p.add_argument('--disc_block', choices=['coord', 'basic'], help='Discriminator block to use.')
+    p.add_argument('--disc_conditioning', choices=['none', 'none-upsample', 'concat'], help='Model to use.')
+    p.add_argument('--disc_final_multi', type=int, help='Multiplier value to match the output of the last layer to the number of units in the MLP. This should change if the number of frames changes.')
+    p.add_argument('--disc_threshold_min', type=float, default=1.2, help='Minimum valiue for the threshold layer.')
+    p.add_argument('--disc_threshold_max', type=float, default=1.2, help='Maximum valiue for the threshold layer.')
+    p.add_argument('--disc_use_spectral_norm', action='store_true', help='Enables spectral normalization for the discriminator.')
+    p.add_argument('--disc_use_threshold_norm', action='store_true', help='Enables threshold layer based on the vector norm.')
+    p.add_argument('--disc_use_threshold_binarize', action='store_true', help='Enables threshold layer that set the norm of the output to either 0 or 1')
+    p.add_argument('--disc_use_low_pass', action='store_true', help='Enables low pass median filter in the discriminator.')
+    p.add_argument('--disc_with_r', action='store_true', help='Enables r coordinate in the discrminator coord_conv layers.')
+    p.add_argument('--disc_freq_pooling', choices=['none', 'max', 'mean'], help='Frequency pooling type after the main convolutional block.')
 
     # Dataset arguments
     p.add_argument('--dataset_chunk_size_seconds', type=float, help='Chunk size of the input audio, in seconds. For example 1.27, or 2.55.')

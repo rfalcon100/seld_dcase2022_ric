@@ -20,7 +20,7 @@ from typing import List
 from dataset.dcase_dataset import DCASE_SELD_Dataset, InfiniteDataLoader, _get_padders
 from evaluation.dcase2022_metrics import cls_compute_seld_results
 from evaluation.evaluation_dcase2022 import write_output_format_file, get_accdoa_labels, get_multi_accdoa_labels, determine_similar_location, all_seld_eval
-from solver import Solver
+from solver import SolverBasic, SolverDAN
 from feature import Feature_StftPlusIV, Feature_MelPlusPhase, Feature_MelPlusIV
 
 import augmentation.spatial_mixup as spm
@@ -278,7 +278,12 @@ def main():
     dataloader_train, dataset_valid = get_dataset(config)
 
     # Solver
-    solver = Solver(config=config, tensorboard_writer=writer)
+    if config.solver == 'vanilla':
+        solver = SolverBasic(config=config, tensorboard_writer=writer)
+    elif config.solver == 'DAN':
+        solver = SolverDAN(config=config, tensorboard_writer=writer)
+    else:
+        raise ValueError(f'Solver {config.solver} not supported.')
 
     # Select features and augmentation and rotation
     augmentation_transform_spatial = None
@@ -343,12 +348,13 @@ def main():
     #y = yolo(x)
 
     out = solver.predictor(x)
-    loss = solver.loss_fns[solver.loss_names[0]](out, target)
+    #loss = solver.loss_fns[solver.loss_names['G_rec']](out, target)
+    loss = solver.loss_fns['G_rec' if config.solver == 'DAN' else 'rec'](out, target)
     print('Initial loss = {:.6f}'.format(loss.item()))
 
     # Monitoring variables
     train_loss, val_loss, seld_metrics_macro, seld_metrics_micro = 0, 0, None, None
-    best_val_step_macro, best_val_loss, best_metrics_macro = 0, 0, [0,0,0,0,99]
+    best_val_step_macro, best_val_loss, best_metrics_macro = 0, 0, [0, 0, 0, 0, 99]
     best_val_step_micro, best_val_loss_micro, best_metrics_micro = 0, 0, [0, 0, 0, 0, 99]
     start_time = time.time()
 
@@ -362,7 +368,7 @@ def main():
             #checkpoints_path = 'dcase2022_plus_dcase22-sim_FIXED_w-aug_mixup_b32_sample-5573019_n-work:0_samplecnn_batchnorm_144000__2022-06-22-220123'
             #checkpoints_name = 'model_step_170000.pth'
             #checkpoint = os.path.join(checkpoint_root, checkpoints_path, checkpoints_name)
-            #solver = Solver(config=config, model_checkpoint=checkpoint)
+            #solver = SolverBasic(config=config, model_checkpoint=checkpoint)
 
             train_loss = train_iteration(config, data, iter_idx=iter_idx, start_time=start_time, start_time_step=start_step_time,
                                          device=device, features_transform=features_transform, rotation_noise=rotations_noise,
@@ -373,9 +379,9 @@ def main():
             if iter_idx % config.print_every == 0 and iter_idx > 0:
                 start_step_time = time.time()
 
-
+            # Validation step
             if iter_idx % config.logging_interval == 0 and iter_idx > 0:
-                seld_metrics_macro, seld_metrics_micro, val_loss = validation_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
+                seld_metrics_macro, seld_metrics_micro, val_loss, _ = validation_iteration(config, dataset=dataset_valid, iter_idx=iter_idx,
                                                                                         device=device, features_transform=features_transform, target_transform=target_transform,
                                                                                         solver=solver, writer=writer,
                                                                                         dcase_output_folder=config['directory_output_results'])
@@ -414,8 +420,8 @@ def main():
                     'iteration: {}/{}, time: {:0.2f}, '
                     'train_loss: {:0.4f}, val_loss: {:0.4f}, '
                     'p_comp: {:0.3f}, '.format(iter_idx, config.num_iters, curr_time,
-                        train_loss, val_loss,
-                        solver.get_curriculum_params()))
+                        train_loss.item(), val_loss,
+                        solver.get_curriculum_params()[0]))
                 print('====== micro ======')
                 print(
                     'best_val_step_micro: {},  \t\t'
@@ -472,7 +478,7 @@ def main():
         #checkpoints_name = 'model_step_80000.pth'
 
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
-        solver = Solver(config=config, model_checkpoint=checkpoint)
+        solver = SolverBasic(config=config, model_checkpoint=checkpoint)
 
         dataset_eval = DCASE_SELD_Dataset(directory_root=config.dataset_root_eval,
                                           list_dataset=config.dataset_list_eval,
@@ -515,9 +521,9 @@ def main():
         checkpoint = os.path.join(checkpoint_root, checkpoints_path[0], checkpoints_name)
 
         if config.oracle_mode:
-            solver = Solver(config=config)  # TODO this is for loss upper bound only
+            solver = SolverBasic(config=config)  # TODO this is for loss upper bound only
         else:
-            solver = Solver(config=config, model_checkpoint=checkpoint)
+            solver = SolverBasic(config=config, model_checkpoint=checkpoint)
 
         seld_metrics_macro, seld_metrics_micro, val_loss, all_outputs = validation_iteration(config, dataset=dataset_valid, iter_idx=0,
                                                                        device=device, features_transform=features_transform,
@@ -531,7 +537,7 @@ def main():
             'iteration: {}/{}, time: {:0.2f}, '
             'train_loss: {:0.4f}, val_loss: {:0.4f}, '
             'p_comp: {:0.3f}, '.format(-1, config.num_iters, curr_time,
-                                       train_loss, val_loss,
+                                       train_loss.item(), val_loss,
                                        solver.get_curriculum_params()))
         print('====== micro ======')
         print(
@@ -636,34 +642,57 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     #plots.plot_labels(target[0].detach().cpu(), n_classes=list(range(target[0].shape[-2])), savefig=False, plot_cartesian=True)
 
     # Output training stats
-    train_loss = solver.loss_values['rec']
+    if config.solver == 'DAN':
+        train_loss = config['w_rec'] * solver.loss_values['G_rec'] + config['w_adv'] *  solver.loss_values['G_adv']
+    else:
+        train_loss = solver.loss_values['rec']
 
     # Logging and printing
     if writer is not None:
         step = iter_idx
-        if iter_idx % 100 == 0:
+        if iter_idx % 200 == 0:
+            # Losses
             writer.add_scalar('Losses/train', train_loss.item(), step)
+            if config.solver == 'DAN':
+                writer.add_scalar('Losses/g_rec', solver.loss_values['G_rec'].item(), step)
+                writer.add_scalar('Losses/g_adv', solver.loss_values['G_adv'].item(), step)
+                writer.add_scalar('Losses/d_real', solver.loss_values['D_real'].item(), step)
+                writer.add_scalar('Losses/d_fake', solver.loss_values['D_fake'].item(), step)
             #if config.wandb:
             #    wandb.log({'Losses/train': train_loss.item()}, step=step)
 
             # Learning rates
             lr = solver.get_lrs()
-            writer.add_scalar('Lr/gen', lr, step)
+            writer.add_scalar('Lr/gen', lr[0], step)
+            if len(lr) == 2:
+                writer.add_scalar('Lr/disc', lr[1], step)
 
             # Grad norm
             grad_norm_model = solver.get_grad_norm()
-            writer.add_scalar('grad_norm/disc', grad_norm_model, step)
+            writer.add_scalar('grad_norm/gen', grad_norm_model[0], step)
+            if len(grad_norm_model) == 2:
+                writer.add_scalar('grad_norm/disc', grad_norm_model[1], step)
 
             # Scheduler
+            curr_params = solver.get_curriculum_params()
             if augmentation_transform_audio is not None or rotation_transform is not None or rotation_noise is not None or augmentation_transform_spatial is not None or augmentation_transform_spec is not None:
-                p_comp = solver.get_curriculum_params()
-                writer.add_scalar('params/p_comp', p_comp, iter_idx)
+                writer.add_scalar('params/p_comp', curr_params[0], iter_idx)
+            if config.solver == 'DAN':
+                writer.add_scalar('params/curr_w_adv', curr_params[1], iter_idx)
+                writer.add_scalar('params/curr_d_threshold_min', curr_params[2], iter_idx)
+                writer.add_scalar('params/curr_d_threshold_max', curr_params[3], iter_idx)
 
+    # Print to console
     if iter_idx % config.print_every == 0:
         curr_time = time.time() - start_time
         step_time = time.time() - start_time_step
-        print('[%d/%d] iters \t Loss_rec: %.6f \t\t Step_time: %0.2f  \t\t  Elapsed time: %0.2f'
-              % (iter_idx, config.num_iters, train_loss.item(), step_time, curr_time))
+        if config.solver == 'DAN':
+            print('[%d/%d] iters \t Loss_gen: %.6f \t Loss_disc  %.6f \t\t Step_time: %0.2f  \t\t  Elapsed time: %0.2f'
+                  % (iter_idx, config.num_iters, train_loss.item(), solver.loss_values['D_real'].item() + solver.loss_values['D_fake'].item(),
+                     step_time, curr_time))
+        else:
+            print('[%d/%d] iters \t Loss_rec: %.6f \t\t Step_time: %0.2f  \t\t  Elapsed time: %0.2f'
+                  % (iter_idx, config.num_iters, train_loss.item(), step_time, curr_time))
 
     # Log an example of the predicted labels
     if (iter_idx % config.logging_interval == 0) and writer is not None:
@@ -694,10 +723,11 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             #fig = plots.plot_labels(fixed_error_sph, savefig=False, plot_cartesian=False)
             #writer.add_figure('fixed_error/train', fig, iter_idx)
 
+    # Save model to disk
     if (iter_idx % config.logging_interval == 0) and iter_idx > 0:
         torch.save(solver.predictor.state_dict(), os.path.join(config.logging_dir, f'model_step_{iter_idx}.pth'))
 
-    return train_loss.item()
+    return train_loss
 
 def validation_iteration(config, dataset, iter_idx, solver, features_transform, target_transform: [nn.Sequential, None], dcase_output_folder, device, writer, detection_threshold=0.5):
     # Adapted from the official baseline
@@ -814,7 +844,7 @@ def validation_iteration(config, dataset, iter_idx, solver, features_transform, 
                 norms = torch.linalg.vector_norm(output, ord=2, dim=-3, keepdims=True)
                 norms = (norms < detection_threshold).repeat(1, output.shape[-3], 1, 1)
                 output[norms] = 0.0
-            loss = torch.tensor([x.item() for x in full_loss]).mean()
+            loss = torch.tensor([x for x in full_loss]).mean()
             outputs_for_plots.append(output)
 
             # Useful fo debug:
