@@ -131,11 +131,9 @@ class SolverGeneric(object):
         self._torch_discriminator_lr_scheduler.load_state_dict(checkpoint['discriminator_scheduler_state_dict'])
         print('Checkpoint was loaded from to {}.'.format(self._args.load_model))
 
-
-    def lr_step(self, val_loss, step=None):
+    def lr_step(self, val_loss):
         """ step in iterations"""
-        if step % 1 == 0:  # Step every validation, controlled from outside
-            self.lr_scheduler.step(metrics=val_loss)
+        self.lr_scheduler.step(metrics=val_loss)
 
     def get_lrs(self):
         return self.optimizer_predictor.state_dict()['param_groups'][0]['lr']
@@ -390,10 +388,9 @@ class SolverBasic(SolverGeneric):
         else:
             self._fixed_input_counter += 1
 
-    def lr_step(self, val_loss, step=None):
+    def lr_step(self, val_loss):
         """ step in iterations"""
-        if step % 1 == 0:   # Step every validation, controlled from outside
-            self.lr_scheduler.step(metrics=val_loss)
+        self.lr_scheduler.step(metrics=val_loss)
 
     def get_lrs(self):
         return [self.optimizer_predictor.state_dict()['param_groups'][0]['lr']]
@@ -683,7 +680,7 @@ class SolverDAN(SolverGeneric):
             lr=self.config.D_lr,
             betas=(0.5, 0.999),
             weight_decay=self.config.D_lr_weight_decay)
-        if self.config.D_lr_discriminator_scheduler == 'warmup':
+        if self.config.D_lr_scheduler == 'warmup':
             discriminator_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 self.optimizer_discriminator,
                 factor=self.config.D_lr_decay_rate,
@@ -692,19 +689,19 @@ class SolverDAN(SolverGeneric):
             self.lr_scheduler_discriminator = GradualWarmupScheduler(
                 self.optimizer_discriminator,
                 multiplier=1, total_epoch=5, after_scheduler=discriminator_lr_scheduler)  # hard coding
-        elif self.config.D_lr_discriminator_scheduler == 'lrstep':
+        elif self.config.D_lr_scheduler == 'lrstep':
             self.lr_scheduler_discriminator = torch.optim.lr_scheduler.StepLR(self.optimizer_discriminator,
-                                                                              step_size=self.config.D_lr_step_size,
+                                                                              step_size=self.config.D_lr_scheduler_step,
                                                                               gamma=self.config.D_lr_decay_rate)
-        elif self.config.D_lr_discriminator_scheduler == 'cosine':
+        elif self.config.D_lr_scheduler == 'cosine':
             self.lr_scheduler_discriminator = optim.lr_scheduler.CosineAnnealingLR(optimizer=self.optimizer_discriminator,
-                                                                                   T_max=self.config.max_iter,
+                                                                                   T_max=self.config.num_iters,
                                                                                    eta_min=self.config.D_lr_min,
                                                                                    verbose=False)
-        elif self.config.D_lr_discriminator_scheduler == 'cosine-restart':
+        elif self.config.D_lr_scheduler == 'cosine-restart':
             self.lr_scheduler_discriminator = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=self.optimizer_discriminator,
-                                                                                             T_0=self.config.D_sch_T_0,
-                                                                                             T_mult=self.config.D_sch_T_mult,
+                                                                                             T_0=self.config.D_lr_scheduler_T_0,
+                                                                                             T_mult=self.config.D_lr_scheduler_T_mult,
                                                                                              eta_min=self.config.D_lr_min,
                                                                                              verbose=False)
         else:
@@ -748,15 +745,19 @@ class SolverDAN(SolverGeneric):
         else:
             self._fixed_input_counter += 1
 
-    def lr_step(self, val_loss, step=None):
+    def lr_step(self, val_loss):
         """ step in iterations"""
         if val_loss is not None:
-            if step % 1 == 0:   # Step every validation, controlled from outside
-                self.lr_scheduler.step(metrics=val_loss)
-                if self.config.D_lr_discriminator_scheduler == 'lrstep':
-                    self.lr_scheduler_discriminator.step()
-                elif self.config.D_lr_discriminator_scheduler == 'warmup':
-                    self.lr_scheduler_discriminator.step(metrics=val_loss)
+            self.lr_scheduler.step(metrics=val_loss)
+
+    def lr_step_discriminator(self, val_loss):
+        """ step in iterations"""
+        if self.config.D_lr_scheduler == 'warmup' and val_loss is not None:
+            self.lr_scheduler_discriminator.step(metrics=val_loss)
+        else:
+            if self.config.D_lr_scheduler == 'lrstep' and self.get_lrs()[-1] < self.config.D_lr_min:  # Manual check for D_lr_min
+                return
+            self.lr_scheduler_discriminator.step()
 
     def get_lrs(self):
         return [self.optimizer_predictor.state_dict()['param_groups'][0]['lr'],
@@ -928,6 +929,8 @@ class SolverDAN(SolverGeneric):
             set_requires_grad(self.discriminator, True)
             self.optimizer_discriminator.zero_grad()
             self.backward_discriminator()
+            if self.config.D_grad_clip > 0:  # Optional gradient clipping to establize traning
+                torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), max_norm=self.config.D_grad_clip)
             self.optimizer_discriminator.step()
             # Update Predictor
             set_requires_grad(self.discriminator, False)

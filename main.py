@@ -472,8 +472,12 @@ def main():
                                                  val_loss if val_loss is not None else 0,
                                                  seld_metrics_macro[4] if seld_metrics_macro is not None else 0)
             if iter_idx % config.lr_scheduler_step == 0 and iter_idx > 0:
-                solver.lr_step(seld_metrics_macro[4] if seld_metrics_macro is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
+                solver.lr_step(seld_metrics_macro[4] if seld_metrics_macro is not None else 0)  # LRstep scheduler based on validation SELD score
+            if config.solver == 'DAN':
+                if iter_idx % config.D_lr_scheduler_step == 0 and iter_idx > 0:
+                    solver.lr_step_discriminator([4] if seld_metrics_macro is not None else 0)
             iter_idx += 1
+
             if config.profiling:
                 prof.step()
 
@@ -659,7 +663,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
 
     # Output training stats
     if config.solver == 'DAN':
-        train_loss = config['w_rec'] * solver.loss_values['G_rec'] + config['w_adv'] *  solver.loss_values['G_adv']
+        train_loss = config['w_rec'] * solver.loss_values['G_rec'] + config['w_adv'] * solver.loss_values['G_adv']
     else:
         train_loss = solver.loss_values['rec']
 

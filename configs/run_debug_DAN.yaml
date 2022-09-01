@@ -9,6 +9,7 @@ seed_mode: balanced     # ['balanced', 'random']
 seed: 1234
 mode: train             # ['train', 'valid', 'eval']
 debug: true
+profiling: false
 logging_dir: './logging'
 wandb: false
 oracle_mode: false
@@ -20,7 +21,6 @@ batch_size: 2
 num_workers: 0
 print_every: 50
 logging_interval: 100
-curriculum_scheduler: linear
 solver: DAN  # ['DAN', 'vanilla']
 disc_algorithm: vanilla
 
@@ -32,21 +32,27 @@ lr_min: 1e-7
 lr_decay_rate: 0.9
 lr_patience_times: 3
 w_rec: 100
+w_adv: 0
 
 # Discriminator
 D_crit: ls # choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge']
-w_adv: 0
-D_lr: 1e-5
+D_lr: 1e-1
 D_lr_min: 1e-7
 D_lr_decay_rate: 0.9
 D_lr_patience_times: 3
-D_lr_step: 1000
 D_lr_weight_decay: 0.001
-D_lr_discriminator_scheduler: lrstep
+D_lr_scheduler: lrstep
+D_lr_scheduler_step: 10
+D_lr_scheduler_T_0: 200
+D_lr_scheduler_T_mult: 1
 D_batches: 0
+D_grad_clip: 10
 curriculum_D_threshold_min: 0.0
 curriculum_D_threshold_max: 0.0
 curriculum_w_adv: 0.0
+
+# Scheduler
+curriculum_scheduler: linear
 
 
 #----------------------------------------------------------------------------------------------------------------

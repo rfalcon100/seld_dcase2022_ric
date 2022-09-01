@@ -1,30 +1,65 @@
-# This is a config file with the general options for DEBUG
+# This is a config file with the general options for TRAIN
 # a comment
 
 #----------------------------------------------------------------------------------------------------------------
+# Experiment metadata
 exp_name: train
 exp_group: ''
 seed_mode: balanced     # ['balanced', 'random']
 seed: 5678
 mode: train             # ['train', 'valid', 'eval']
 debug: false
+profiling: false
 logging_dir: './logging'
 wandb: false
 oracle_mode: false
 
+#----------------------------------------------------------------------------------------------------------------
+# Training
 num_iters: 200000
 batch_size: 32
 num_workers: 0
 print_every: 200
 logging_interval: 10000
+solver: vanilla  # ['DAN', 'vanilla']
+disc_algorithm: vanilla
+
+# Predictor
+G_crit: ls
 lr: 1e-4
 lr_scheduler_step: 10000
 lr_min: 1e-7
 lr_decay_rate: 0.9
 lr_patience_times: 3
 curriculum_scheduler: linear
+w_rec: 1.0
+w_adv: 0
+
+# Discriminator
+D_crit: ls # choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge']
+D_lr: 1e-1
+D_lr_min: 1e-7
+D_lr_decay_rate: 0.9
+D_lr_patience_times: 3
+D_lr_weight_decay: 0.001
+D_lr_scheduler: lrstep
+D_lr_scheduler_step: 10
+D_lr_scheduler_T_0: 200
+D_lr_scheduler_T_mult: 1
+D_batches: 0
+D_grad_clip: 10
+curriculum_D_threshold_min: 0.0
+curriculum_D_threshold_max: 0.0
+curriculum_w_adv: 0.0
+
+# Scheduler
+curriculum_scheduler: linear
+
 
 #----------------------------------------------------------------------------------------------------------------
+# Models
+
+# Predictor
 model: crnn10           # ['crnn10', 'samplecnn', 'samplecnn_gru']
 model_features_transform: stft_iv     # ['stft_iv', 'mel_iv', 'mel_base', 'none']
 model_spatialmixup: false
@@ -42,7 +77,30 @@ mixup_alpha: 0.2
 input_shape: [7, 96, 256]      # 'input_shape': [4, 144000], when using sample cnn
 output_shape: [3, 12, 256]
 
+# Discriminator
+disc: DiscriminatorModularThreshold
+disc_input_shape:  [3, 256, 256]      # These are labels, or upsampled labels, or conditioned-upsampled labels
+disc_feature_maps: 64
+disc_final: none
+disc_kernels: ["4,4", "4,4", "4,4", "4,4", "2,2"]
+disc_strides: ["2,2", "2,2", "4,4", "4,4", "2,2"]
+disc_padding: [1, 1, 1, 1, 0]
+disc_normalization: instance
+disc_block: coord
+disc_conditioning: none-upsample
+disc_final_multi: 4
+disc_threshold_min: 0.3
+disc_threshold_max: 1.5
+disc_use_spectral_norm: true
+disc_use_threshold_norm: true
+disc_use_threshold_binarize: false
+disc_use_low_pass: false
+disc_with_r: false
+disc_freq_pooling: none
+
+
 #----------------------------------------------------------------------------------------------------------------
+# Dataset
 dataset_chunk_size_seconds: 2.55  # For example 1.27, or 2.55 or 5.11
 dataset_chunk_mode: random        # ['random', 'fixed', 'full']
 dataset_multi_track: false
@@ -57,4 +115,5 @@ dataset_root_eval: '/m/triton/scratch/work/falconr1/sony/data_dcase2022'
 dataset_list_eval: 'dcase2022_eval_all.txt'
 
 #----------------------------------------------------------------------------------------------------------------
+# Evaluation
 evaluation_overlap_fraction: 1
