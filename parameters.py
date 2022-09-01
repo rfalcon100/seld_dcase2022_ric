@@ -78,6 +78,7 @@ def get_parameters():
     p.add_argument('--mode', help='train or eval', choices=['train', 'valid', 'eval'])
     p.add_argument('--oracle_mode', action='store_true', help='Enables oracle mode, used to get the upper bound of the metrics.')
     p.add_argument('--debug', action='store_true', help='Enables debug mode, with short runs and no logging.')
+    p.add_argument('--profiling', action='store_true', help='Enables profiling mode.')
     p.add_argument('--job_id', type=str, default='', help='Job id to append to the experiment name. Helps getting the job log.')
     p.add_argument('--task_id', type=str, default='', help='Task id when using array jobs.')
     p.add_argument('--logging_dir', help='Directory to save logs and results.')

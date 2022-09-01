@@ -3,6 +3,7 @@ import warnings
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.profiler
 import numpy as np
 import torchaudio
 from torch.utils.tensorboard import SummaryWriter
@@ -352,6 +353,16 @@ def main():
     loss = solver.loss_fns['G_rec' if config.solver == 'DAN' else 'rec'](out, target)
     print('Initial loss = {:.6f}'.format(loss.item()))
 
+    # Profiling
+    if config.profiling:
+        prof = torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(config.logging_dir),
+            profile_memory=False,
+            record_shapes=True,
+            with_stack=False)
+        prof.start()
+
     # Monitoring variables
     train_loss, val_loss, seld_metrics_macro, seld_metrics_micro = 0, 0, None, None
     best_val_step_macro, best_val_loss, best_metrics_macro = 0, 0, [0, 0, 0, 0, 99]
@@ -463,7 +474,12 @@ def main():
             if iter_idx % config.lr_scheduler_step == 0 and iter_idx > 0:
                 solver.lr_step(seld_metrics_macro[4] if seld_metrics_macro is not None else 0, step=iter_idx)  # LRstep scheduler based on validation SELD score
             iter_idx += 1
+            if config.profiling:
+                prof.step()
+
         print('>>>>>>>> Training Finished  <<<<<<<<<<<<')
+        if config.profiling:
+            prof.stop()
         wandb.finish()
 
     elif config.mode == 'eval':
