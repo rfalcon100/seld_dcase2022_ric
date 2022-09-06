@@ -40,25 +40,25 @@ case $param in
     ;;
     3)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_DAN_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
     --wandb --exp_name "crnn10-2.55_sony_stft_DAN-zero" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
     --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.0 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
-    --G_crit ls --D_crit ls
+    --G_crit ls --D_crit ls --D_grad_clip 100
     ;;
     4)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_DAN_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
     --wandb --exp_name "crnn10-2.55_sony_stft_DAN" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
     --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
-    --G_crit ls --D_crit ls
+    --G_crit ls --D_crit ls --D_grad_clip 100
     ;;
     5)
     CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_DAN_dcase2021.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
     --wandb --exp_name "crnn10-2.55_sony_stft_DAN-curr" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
     --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
-    --G_crit ls --D_crit ls -D_use_threshold_norm -D_threshold_min 0.5 -D_threshold_max 1.2 \
-    --curriculum_D_threshold_min --0.02 -curriculum_D_threshold_max 0.035
+    --G_crit ls --D_crit ls --D_grad_clip 100 --disc_use_threshold_norm --disc_threshold_min 0.5 --disc_threshold_max 1.2 \
+    --curriculum_D_threshold_min -0.02 --curriculum_D_threshold_max 0.035
     ;;
 esac
 

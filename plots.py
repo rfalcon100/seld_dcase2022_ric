@@ -532,14 +532,17 @@ def plot_labels(labels: Union[torch.Tensor, np.ndarray], n_classes: Union[int, L
                     tmp_r = np.minimum(labels[2, jj, :], 1)
                     tmp_x = np.arange(tmp_data.shape[-1])
                     r, g, b = to_rgb(cmap(jj))  # Vector magnitude determines the alpha
+                    tmp_r[tmp_r < 1.0] = tmp_r[tmp_r < 1.0] / 10  # reduce alpha to make it more transparent
                     tmp_color = [(r, g, b, alpha) for alpha in tmp_r]
                     axs[ii].scatter(tmp_x, tmp_data, s=10, color=tmp_color)
             else:
                 for jj in n_classes:
-                    tmp_r = labels[ii, jj, :]
+                    tmp_r = labels[2, jj, :]
                     tmp_x = np.arange(tmp_data.shape[-1])
                     tmp_y = np.ones_like(tmp_x) * jj
-                    axs[ii].scatter(tmp_x, tmp_y, s=tmp_r * size_modifier, color=cmap(jj))
+                    r, g, b = to_rgb(cmap(jj))  # Vector magnitude determines the alpha
+                    tmp_color = [(r, g, b, alpha/10) for alpha in tmp_r]
+                    axs[ii].scatter(tmp_x, tmp_y, s=tmp_r * size_modifier, color=tmp_color)
             axs[ii].set_ylabel(f'{y_labels[ii]}')
             axs[ii].grid()
             eps = 1e-1

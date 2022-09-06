@@ -731,8 +731,8 @@ class SolverDAN(SolverGeneric):
                 if self._args.nda_func != 'none':
                     raise NotImplementedError('Not ready for NDA when using multiple batches for discrminator')
         else:
-            self.data_disc['x'] = torch.clone(x)
-            self.data_disc['y'] = torch.clone(y)
+            self.data_disc['x'] = x.detach()
+            self.data_disc['y'] = y.detach()
 
         batch_size = self.data_disc['x'].shape[0]
         self.data_disc['y_real'] = torch.ones(batch_size, 1).to(self.device)

@@ -106,11 +106,11 @@ dataset_multi_track: false
 dataset_backend: sony
 dataset_ignore_pad_labels: false
 dataset_trim_wavs: -1
-dataset_root: ['/m/triton/scratch/work/falconr1/sony/data_dcase2022', "/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim"]
+dataset_root: ['/m/triton/work/falconr1/sony/data_dcase2022', "/m/triton/scratch/work/falconr1/sony/data_dcase2022_sim"]
 dataset_list_train: ['dcase2022_devtrain_all.txt', 'dcase2022_sim_all.txt']
-dataset_root_valid: '/m/triton/scratch/work/falconr1/sony/data_dcase2022'
+dataset_root_valid: '/m/triton/work/falconr1/sony/data_dcase2022'
 dataset_list_valid: 'dcase2022_devtest_all.txt'
-dataset_root_eval: '/m/triton/scratch/work/falconr1/sony/data_dcase2022'
+dataset_root_eval: '/m/triton/work/falconr1/sony/data_dcase2022'
 dataset_list_eval: 'dcase2022_eval_all.txt'
 
 #----------------------------------------------------------------------------------------------------------------

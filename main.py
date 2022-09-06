@@ -474,8 +474,8 @@ def main():
             if iter_idx % config.lr_scheduler_step == 0 and iter_idx > 0:
                 solver.lr_step(seld_metrics_macro[4] if seld_metrics_macro is not None else 0)  # LRstep scheduler based on validation SELD score
             if config.solver == 'DAN':
-                if iter_idx % config.D_lr_scheduler_step == 0 and iter_idx > 0:
-                    solver.lr_step_discriminator([4] if seld_metrics_macro is not None else 0)
+                if iter_idx > 0:
+                    solver.lr_step_discriminator(seld_metrics_macro[4] if seld_metrics_macro is not None else 0)
             iter_idx += 1
 
             if config.profiling:
@@ -630,7 +630,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     with torch.no_grad():
         if rotation_transform is not None:
             rotation_transform.reset_R(mode=config.model_rotations_mode)
-            rotation_transform.p_comp = solver.get_curriculum_params()
+            rotation_transform.p_comp = solver.get_curriculum_params()[0]
             x, target = rotation_transform(x, target)
         if rotation_noise is not None:
             rotation_noise.reset_R(mode='noise')
@@ -638,7 +638,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             x, _ = rotation_noise(x)
         if augmentation_transform_spatial is not None:
             augmentation_transform_spatial.reset_G(G_type='spherical_cap_soft')
-            augmentation_transform_spatial.p_comp = solver.get_curriculum_params()
+            augmentation_transform_spatial.p_comp = solver.get_curriculum_params()[0]
             if False:  # Debugging
                 augmentation_transform_spatial.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
             x = augmentation_transform_spatial(x)
