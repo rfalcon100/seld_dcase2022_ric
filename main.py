@@ -634,7 +634,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
             x, target = rotation_transform(x, target)
         if rotation_noise is not None:
             rotation_noise.reset_R(mode='noise')
-            rotation_noise.p_comp = solver.get_curriculum_params()
+            rotation_noise.p_comp = solver.get_curriculum_params()[0]
             x, _ = rotation_noise(x)
         if augmentation_transform_spatial is not None:
             augmentation_transform_spatial.reset_G(G_type='spherical_cap_soft')
@@ -643,12 +643,12 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
                 augmentation_transform_spatial.plot_response(plot_channel=0, plot_matrix=True, do_scaling=True, plot3d=False)
             x = augmentation_transform_spatial(x)
         if augmentation_transform_audio is not None:
-            augmentation_transform_audio = RandomAugmentations(p_comp=solver.get_curriculum_params())
+            augmentation_transform_audio = RandomAugmentations(p_comp=solver.get_curriculum_params()[0])
             x = augmentation_transform_audio(x)
         if features_transform is not None:
             x = features_transform(x)
             if augmentation_transform_spec is not None:
-                augmentation_transform_spec = RandomSpecAugmentations(p_comp=solver.get_curriculum_params())
+                augmentation_transform_spec = RandomSpecAugmentations(p_comp=solver.get_curriculum_params()[0])
                 x = augmentation_transform_spec(x)
         if target_transform is not None:
             target = target_transform(target)
