@@ -868,3 +868,49 @@ def plot_distribution_azi_ele(points: Union[torch.Tensor, np.ndarray], type='hex
     plt.tight_layout()
     plt.suptitle(title)
     plt.show()
+
+    
+def plot_waveforms_for_poster(datapath):
+  # Tis is a helper function to load some wavs and plot the waveforms with different colors.
+  # Very helpful when making diagrams or posters
+    this_class = 'dog'
+    this_wav_id  = 5
+
+    this_wavs = []
+    this_fnames = []
+    this_fs = {}
+    root = params['datapath'] + '/' + this_class
+    for x in os.listdir(root):
+        if x.endswith(".wav"):
+            #print(x)
+            tmp, fs = torchaudio.load(os.path.join(root, x))
+            this_wavs.append(tmp)
+            this_fnames.append(x)
+            this_fs[x] = fs
+
+    print(f'Loaded file {this_fnames[this_wav_id]}')
+    print(f'Shape {this_wavs[this_wav_id].shape}')
+    print(f'Fs = {this_fs[this_fnames[this_wav_id]]}')
+
+
+    # And now, plot
+    print(plt.style.available)
+    plt.style.use('seaborn-colorblind')
+    plt.style.use('ggplot')
+    plt.style.use('seaborn-white')
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for id in range(6):
+        start_idx = 44100
+        end_idx = start_idx + int(44100/2)
+        wav = this_wavs[id][:, start_idx:end_idx]  # Maybe change the lengt of the wav
+        fs = this_fs[this_fnames[id]]
+        fig, ax = plt.subplots(1,1)
+        plt.plot(wav[0,:], color=colors[id])
+        ax.set_axis_off()
+        plt.tight_layout()
+        plt.show()
+        plt.savefig(f'wav0{id}', transparent=True)
+        print(f'File: {this_fnames[id]}')
+        print(f'fs: {fs}')
+        IPython.display.display(IPython.display.Audio(wav.numpy(), rate=fs))
