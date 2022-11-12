@@ -75,6 +75,8 @@ use_mixup: false
 mixup_alpha: 0.2
 input_shape: [7, 96, 256]      # 'input_shape': [4, 144000], when using sample cnn
 output_shape: [3, 12, 256]
+G_rec_spec: l1
+w_rec_spec: 0.0
 
 # Discriminator
 disc: DiscriminatorModularThreshold

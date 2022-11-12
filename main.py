@@ -350,7 +350,7 @@ def main():
 
     out = solver.predictor(x)
     #loss = solver.loss_fns[solver.loss_names['G_rec']](out, target)
-    loss = solver.loss_fns['G_rec' if config.solver == 'DAN' else 'rec'](out, target)
+    loss = solver.loss_fns['G_rec' if config.solver == 'DAN' else 'G_rec'](out, target)
     print('Initial loss = {:.6f}'.format(loss.item()))
 
     # Profiling
@@ -665,7 +665,7 @@ def train_iteration(config, data, iter_idx, start_time, start_time_step, device,
     if config.solver == 'DAN':
         train_loss = config['w_rec'] * solver.loss_values['G_rec'] + config['w_adv'] * solver.loss_values['G_adv']
     else:
-        train_loss = solver.loss_values['rec']
+        train_loss = solver.loss_values['G_rec']
 
     # Logging and printing
     if writer is not None:

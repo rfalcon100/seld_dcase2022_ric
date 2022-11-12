@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
+import torchaudio
+import math
 
 ##
 # Useful repos:
@@ -11,7 +11,6 @@ import torch.nn.functional as F
 # https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/pix2pix_model.py
 #
 ##
-
 
 def discriminator_loss(prediction: torch.Tensor, target_is_real: bool, loss_type: str = 'minmax'):
     target_real = 1.0
@@ -44,7 +43,6 @@ def discriminator_loss(prediction: torch.Tensor, target_is_real: bool, loss_type
             loss = torch.mean(prediction)
 
     return loss
-
 
 def generator_loss(prediction, loss_type='minmax'):
     eps = 1e-8
@@ -155,3 +153,102 @@ class MSELoss_ADPIT(object):
                 loss_12 * (loss_min == 12)).mean()
 
         return loss
+
+class AccDoaSpectralLoss(nn.Module):
+    """ AccDoaSpectralLoss
+    Based on the Multi-resolution STFT loss
+    Computes the L1 loss of the STFT at different n_fft sizes, of the ACCDOA vectors
+    There are two terms, L1loss of the magnitude SFTT, and L1loss of the log magnitude.
+    """
+    def __init__(self, n_ffts=(2048, 1024, 512, 256, 128, 64), hop_size=0.75, alpha=1.0, device='cpu', distance='l1',
+                 return_breakdown=False):
+        super().__init__()
+        self.n_ffts = n_ffts
+        self.hop_size = hop_size
+        self.alpha = alpha
+        self.return_breakdown = return_breakdown
+        if distance == 'l1':
+            self.crit = nn.L1Loss()
+        else:
+            self.crit = nn.MSELoss()
+
+        self.log_transform = torchaudio.transforms.AmplitudeToDB(stype='magnitude', top_db=80).to(device)
+        self.spec_transforms = [torchaudio.transforms.Spectrogram(n_fft=n_fft,
+                                                                  win_length=n_fft,
+                                                                  hop_length=math.floor(n_fft * self.hop_size),
+                                                                  power=1,
+                                                                  normalized=True).to(device)
+                                for n_fft in n_ffts]
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor):
+        assert len(output.shape) == 3 or len(output.shape) == 4, f'Tensors should be [3, n_classes, frames] with or without batch. Shape = {output.shape}'
+        assert output.shape == target.shape, 'Tensors should have the same shape.'
+        
+        if len(output.shape) == 3:
+            a = None
+            b, c, d = output.shape
+            shape = (-1, d)
+        else:
+            a, b, c, d = output.shape
+            shape = (a, -1, d)
+        output = torch.reshape(output, shape)
+        target = torch.reshape(target, shape)
+
+        losses = []
+        for spectrogram in self.spec_transforms:
+            if spectrogram.n_fft > output.shape[-1]:
+                print(f'Warning: Audio too small for n_fft ({spectrogram.n_fft} > {output.shape[-1]}). Skipping this size.')
+                continue
+
+            spec_output = spectrogram(output)
+            spec_target = spectrogram(target)
+            log_spec_output = self.log_transform(spec_output)
+            log_spec_target = self.log_transform(spec_target)
+
+            loss = self.crit(spec_output, spec_target) + self.alpha * self.crit(log_spec_output, log_spec_target)
+            losses.append(loss)
+
+        if self.return_breakdown:
+            return sum(losses), losses
+        return sum(losses)
+
+def test_spectral_loss(accdoa1, accdoa2, criterion):
+    # Truncate so that both files have the same timesteps
+    max_length = min(accdoa1.shape[-1], accdoa2.shape[-1])
+    accdoa1 = accdoa1[..., 0:max_length]
+    accdoa2 = accdoa2[..., 0:max_length]
+
+    loss1 = criterion(accdoa1, accdoa1)
+    loss2 = criterion(accdoa2, accdoa2)
+    loss_mix1 = criterion(accdoa1, accdoa2)
+    loss_mix2 = criterion(accdoa2, accdoa1)
+
+    assert np.isclose(loss1, 0), 'Loss for audio 1 is too big'
+    assert np.isclose(loss2, 0), 'Loss for audio 2 is too big'
+
+    assert loss1 < loss_mix1, 'Self loss for audio 1 is larger than the loss compared to a different audio'
+    assert loss2 < loss_mix2, 'Self loss for audio 2 is larger than the loss compared to a different audio'
+
+    assert np.isclose(loss_mix1, loss_mix2), 'Loss should be symmetric'
+
+    # Testing Batches
+    batch = torch.stack((accdoa1, accdoa2))
+    loss_batch = criterion(batch, batch)
+
+    assert np.isclose(loss_batch, 0), 'Loss for batch should be close to 0'
+
+    print(f'Loss accdoa1 x accdoa 1 : {loss1}')
+    print(f'Loss accdoa2 x accdoa 2 : {loss2}')
+    print(f'Loss accdoa1 x accdoa 2 : {loss_mix1}')
+    print(f'Loss accdoa2 x accdoa 1 : {loss_mix2}')
+    print('Test completed')
+
+
+if __name__ == '__main__':
+    channels, n_classes, frames = 3, 12, 256
+    accdoa1 = torch.randn((channels, n_classes, frames))
+    accdoa2 = torch.randn((channels, n_classes, frames))
+
+    criterion = AccDoaSpectralLoss(n_ffts=[128,64,32,16,8])
+    test_spectral_loss(accdoa1, accdoa2, criterion)
+

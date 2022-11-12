@@ -34,6 +34,8 @@ lr_patience_times: 3
 curriculum_scheduler: linear
 w_rec: 1.0
 w_adv: 0
+G_rec_spec: l1
+w_rec_spec: 0.0
 
 # Discriminator
 D_crit: ls # choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge']

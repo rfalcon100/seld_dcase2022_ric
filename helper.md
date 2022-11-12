@@ -401,6 +401,48 @@ lrstep
 --wandb
 ```
 
+### SampleCNN, debugging, this work sok
+```bash
+-c
+./configs/run_debug.yaml
+--batch_size
+2
+--print_every
+500
+--num_iters
+100000
+--logging_interval
+2000
+--dataset_trim_wavs
+-1
+--dataset_backend
+sony
+--model
+samplecnn_gru
+--dataset_chunk_size_seconds
+6
+--model_features_transform
+bandpass
+--input_shape
+4
+144000
+--mode
+train
+--dataset_root
+/m/triton/work/falconr1/sony/data_dcase2021_task3
+--dataset_list_train
+dcase2021t3_foa_overfit.txt
+--dataset_root_valid
+/m/triton/work/falconr1/sony/data_dcase2021_task3
+--dataset_list_valid
+dcase2021t3_foa_overfit.txt
+--evaluation_overlap_fraction
+1
+--curriculum_scheduler
+linear
+--lr
+1e-3
+```
 
 This are commands that I can call from the command line in vrgpu to do some manual profiling.
 The idea is to monitor the step time, and look in my excel file for comparison.

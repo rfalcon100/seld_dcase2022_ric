@@ -97,6 +97,7 @@ def get_parameters():
     p.add_argument('--lr_decay_rate', type=float, help='Decay rate for the lr scheduler.')
     p.add_argument('--lr_patience_times', type=float, help='Validaiton steps patienece for the lr scheduler.')
     p.add_argument('--w_rec', type=float, default=0, help='Weight for the reconstruction loss of the generator.')
+    p.add_argument('--w_rec_spec', type=float, default=0, help='Weight for the spectral reconstruction loss of the generator.')
     p.add_argument('--w_adv', type=float, default=1, help='Weight for the adversarial loss of the generator.')
 
     # Curriculum
@@ -117,6 +118,7 @@ def get_parameters():
     p.add_argument('--D_lr_scheduler_T_mult', type=int, default=1, help='T_mult paramter for the cosine-restaet scheduler of the discriminator, this is the period change.')
     p.add_argument('--D_grad_clip', type=float, default=-1, help='Gradient clipping for the discriminator. Set to -1 to disable.')
 
+    p.add_argument('--G_rec_spec', type=str, default='l2', choices=['l2', 'l1'])
     p.add_argument('--G_crit', type=str, default='minmax', choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge'])
     p.add_argument('--D_crit', type=str, default='minmax', choices=['minmax', 'non-sat', 'ls', 'wass', 'hinge'])
     p.add_argument('--disc_algorithm', type=str, default='vanilla', choices=['vanilla'])
@@ -131,7 +133,7 @@ def get_parameters():
     p.add_argument('--model_rotations', action='store_true', help='Enable soundfiled rotations for audio and labels.')
     p.add_argument('--model_rotations_mode', type=str, help='Rotation mode.', choices=['azi', 'ele', 'azi-ele'])
     p.add_argument('--model_rotations_noise', action='store_true', help='Enable rotations (angular) noise.')
-    p.add_argument('--model_loss_fn', help='Loss function.', choices=['mse', 'bce'])
+    p.add_argument('--model_loss_fn', help='Loss function.', choices=['mse', 'bce', 'l1'])
     p.add_argument('--model_normalization', help='Threshold for detecting events during evaluation.')
     p.add_argument('--detection_threshold', type=float, help='Threshold for detecting events during evaluation.')
     p.add_argument('--thresh_unify', type=float, help='Threshold for unify detections during evaluation')

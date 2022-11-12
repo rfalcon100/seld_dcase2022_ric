@@ -27,6 +27,114 @@ echo 'Job_sub_id'
 echo $job_sub_id
 
 
+# This is my first with DANs, kinda like table 01 of the paper
+case $param in
+    1)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_sony_stft_baseline" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --curriculum_scheduler 'fixed'
+    ;;
+    2)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train --model_rotations \
+    --wandb --exp_name "crnn10-2.55_sony_stft_baseline+rot" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "vanilla" --curriculum_scheduler 'fixed'
+    ;;
+    3)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_sony_stft_DAN-zero" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
+    --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.0 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
+    --G_crit ls --D_crit ls --D_grad_clip 100
+    ;;
+    4)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_sony_stft_DAN" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
+    --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
+    --G_crit ls --D_crit ls --D_grad_clip 100
+    ;;
+    5)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_sony_stft_DAN-lr:0.01" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
+    --D_lr 0.01 --D_lr_min 1e-6 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
+    --G_crit ls --D_crit ls --D_grad_clip 100
+    ;;
+    6)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
+    --wandb --exp_name "crnn10-2.55_sony_stft_DAN-curr" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
+    --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
+    --G_crit ls --D_crit ls --D_grad_clip 100 --disc_use_threshold_norm --disc_threshold_min 0.5 --disc_threshold_max 1.2 \
+    --curriculum_D_threshold_min -0.02 --curriculum_D_threshold_max 0.035
+    ;;
+esac
+
+exit 0
+# Replicating the table from the workshop but with sampleCNN
+# These were from testing input features and augmentaiton for CRNN
+
+case $param in
+    1)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6  --model_features_transform bandpass --mode train --input_shape 4 144000 \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla"  --lr 1e-3
+    ;;
+    2)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000  --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler fixed \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+aug+spm+rot+rotnoise+specaug+mix__fixed" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    3)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler linear\
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+aug+spm+rot+rotnoise+specaug+mix__linear" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    4)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler loss\
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+aug+spm+rot+rotnoise+specaug+mix__loss" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    5)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_augmentation --model_spatialmixup --model_rotations --model_rotations_noise --model_spec_augmentation --model_spatialmixup --use_mixup --curriculum_scheduler seld_metric\
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+aug+spm+rot+rotnoise+specaug+mix__seld_metric" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    6)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_augmentation \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+aug" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    7)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+spm" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    8)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_rotations \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+rot" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    9)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_rotations_noise \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+rotnoise" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    10)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spec_augmentation\
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+specaug" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+    11)
+    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+    -c ./configs/run_train_default.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --use_mixup \
+    --wandb --exp_name "samplecnn_gru-6_sony_bandpass+mix" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --lr 1e-3
+    ;;
+esac
+
+exit 0
+
+
 # Replicating the table from the workshop
 # These were from testing input features and augmentaiton for CRNN
 
@@ -90,41 +198,6 @@ esac
 
 exit 0
 
-# This is my first with DANs, kinda like table 01 of the paper
-case $param in
-    1)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
-    --wandb --exp_name "crnn10-2.55_sony_stft_baseline" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony  --solver "vanilla" --curriculum_scheduler 'fixed'
-    ;;
-    2)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_default.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train --model_rotations \
-    --wandb --exp_name "crnn10-2.55_sony_stft_baseline+rot" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "vanilla" --curriculum_scheduler 'fixed'
-    ;;
-    3)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
-    --wandb --exp_name "crnn10-2.55_sony_stft_DAN-zero" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
-    --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.0 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
-    --G_crit ls --D_crit ls --D_grad_clip 100
-    ;;
-    4)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
-    --wandb --exp_name "crnn10-2.55_sony_stft_DAN" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
-    --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
-    --G_crit ls --D_crit ls --D_grad_clip 100
-    ;;
-    5)
-    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
-    -c ./configs/run_train_DAN_dcase2022.yaml --exp_group $exp_group --model crnn10 --dataset_chunk_size_seconds 2.55 --model_features_transform stft_iv --mode train \
-    --wandb --exp_name "crnn10-2.55_sony_stft_DAN-curr" --seed $seed --job_id $job_id --task_id $job_sub_id --dataset_backend sony --solver "DAN" \
-    --D_lr 0.1 --D_lr_min 1e-10 --D_lr_scheduler "lrstep" --w_rec 100 --w_adv 0.3 --curriculum_w_adv 0.0 --curriculum_scheduler 'fixed' \
-    --G_crit ls --D_crit ls --D_grad_clip 100 --disc_use_threshold_norm --disc_threshold_min 0.5 --disc_threshold_max 1.2 \
-    --curriculum_D_threshold_min -0.02 --curriculum_D_threshold_max 0.035
-    ;;
-esac
 
 
 
@@ -289,6 +362,10 @@ esac
 
 # These were from testing input features and augmentaiton for CRNN, I ma missing mixup here
 #
+#    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \
+#    -c ./configs/run_train_dcase2021.yaml --exp_group $exp_group --model samplecnn_gru --dataset_chunk_size_seconds 6 --model_features_transform bandpass --mode train --input_shape 4 144000 --model_spatialmixup --model_augmentation --model_rotations --use_mixup \
+#    --wandb --exp_name "samplecnn-gru_bandpass+spm+aug+rot+mixup" --seed $seed --job_id $job_id --task_id $job_sub_id --lr 1e-3
+
 #case $param in
 #    1)
 #    CUDA_VISIBLE_DEVICES=$cuda_device python main.py \

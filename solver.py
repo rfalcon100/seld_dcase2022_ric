@@ -13,7 +13,7 @@ from typing import List
 from utils import GradualWarmupScheduler, grad_norm, mixup_data, mixup_criterion
 from models.crnn import CRNN10, CRNN
 from models.samplecnn_raw import SampleCNN, SampleCNN_GRU
-from models.losses import MSELoss_ADPIT, generator_loss, discriminator_loss
+from models.losses import MSELoss_ADPIT, generator_loss, discriminator_loss, AccDoaSpectralLoss
 from models.discriminators import DiscriminatorModularThreshold
 
 
@@ -70,9 +70,9 @@ class SolverBasic(SolverGeneric):
         self.curriculum_seld_metric = 1.0
 
         # If using multiple losses, each loss has a name, value, and function (criterion)
-        self.loss_names = ['rec']
+        self.loss_names = ['G_rec', 'G_rec_spec']
         self.loss_values = {x: 0 for x in self.loss_names}
-        self.loss_fns = {x: self._get_loss_fn() for x in self.loss_names}
+        self.loss_fns = self._get_loss_fn()
 
         # Build models
         self.predictor = self.build_predictor()
@@ -157,16 +157,26 @@ class SolverBasic(SolverGeneric):
         return predictor.to(self.device)
 
     def _get_loss_fn(self) -> torch.nn.Module:
-        loss_fn = None
+        loss_fn, loss_spec = None, None
         if self.config['dataset_multi_track']:
             loss_fn = MSELoss_ADPIT()
         elif self.config.model_loss_fn == 'mse':
             loss_fn = torch.nn.MSELoss()
         elif self.config.model_loss_fn == 'bce':
             loss_fn = torch.nn.BCEWithLogitsLoss()
+        elif self.config.model_loss_fn == 'l1':
+            loss_fn = torch.nn.L1Loss()
 
+        if self.config.G_rec_spec == 'l1':
+            loss_spec = AccDoaSpectralLoss(n_ffts=[256,128,64,32,16,8], distance='l1', device=self.device)
+        elif self.config.G_rec_spec == 'l2':
+            loss_spec = AccDoaSpectralLoss(n_ffts=[256, 128, 64, 32, 16, 8], distance='l2', device=self.device)
         assert loss_fn is not None, 'Wrong loss function'
-        return loss_fn
+        assert loss_spec is not None, 'Wrong loss function'
+
+        losses = {'G_rec': loss_fn,
+                  'G_rec_spec': loss_spec}
+        return losses
 
     def init_optimizers(self):
         self.optimizer_predictor = optim.Adam(self.predictor.parameters(), lr=self.config.lr, betas=(0.5, 0.999))
@@ -277,12 +287,19 @@ class SolverBasic(SolverGeneric):
         """Calculate GAN and reconstruction loss for the generator"""
         if self.config.use_mixup:
             loss_func = mixup_criterion(self.data_gen['y_a'], self.data_gen['y_b'], self.lam)
-            loss_G_rec = loss_func(self.loss_fns['rec'], self.data_gen['y_hat'])
+            loss_G_rec = loss_func(self.loss_fns['G_rec'], self.data_gen['y_hat'])
+            loss_G_spec = 0.0
         else:
-            loss_G_rec = self.loss_fns['rec'](self.data_gen['y_hat'], self.data_gen['y'])
+            loss_G_rec = self.loss_fns['G_rec'](self.data_gen['y_hat'], self.data_gen['y'])
+            if self.config.w_rec_spec > 0.0:
+                loss_G_spec = self.loss_fns['G_rec_spec'](self.data_gen['y_hat'], self.data_gen['y'])
+            else:
+                loss_G_spec = 0.0
         # Total weighted loss
-        self.loss_values['rec'] = loss_G_rec
-        loss_G_rec.backward()
+        self.loss_values['G_rec'] = loss_G_rec
+        self.loss_values['G_rec_spec'] = loss_G_spec
+        total_loss = loss_G_rec + self.config.w_rec_spec * loss_G_spec
+        total_loss.backward()
 
     def train_step(self):
         """ Calculates losses, gradients, and updates the network parameters"""
